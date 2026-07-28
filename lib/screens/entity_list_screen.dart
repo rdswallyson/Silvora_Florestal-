@@ -1,0 +1,1053 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import '../data/entities.dart';
+import '../services/db_service.dart';
+import '../theme/app_theme.dart';
+import 'entity_detail_screen.dart';
+
+/// Tela genérica de módulo: lista os registros da tabela e permite
+/// cadastrar, editar e excluir — tudo salvo no Supabase.
+class EntityListScreen extends StatefulWidget {
+  final EntityDef def;
+  const EntityListScreen(this.def, {super.key});
+
+  @override
+  State<EntityListScreen> createState() => _EntityListScreenState();
+}
+
+class _EntityListScreenState extends State<EntityListScreen> {
+  late Future<List<Map<String, dynamic>>> _future;
+  String _query = '';
+  String? _filtroEquipeId;
+  String? _filtroFuncionarioId;
+  List<Map<String, dynamic>> _equipesOptions = [];
+  List<Map<String, dynamic>> _funcionariosOptions = [];
+
+  EntityDef get def => widget.def;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = Db.list(def.table, select: def.selectQuery);
+    _loadFilterOptions();
+  }
+
+  Future<void> _loadFilterOptions() async {
+    if (def.table != 'producao') return;
+    try {
+      final equipes = await Db.options('equipes');
+      final funcionarios = await Db.options('funcionarios');
+      if (mounted) {
+        setState(() {
+          _equipesOptions = equipes;
+          _funcionariosOptions = funcionarios;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _reload() =>
+      setState(() => _future = Db.list(def.table, select: def.selectQuery));
+
+  Future<void> _openForm([Map<String, dynamic>? existing]) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _EntityForm(def: def, existing: existing),
+    );
+    if (saved == true && mounted) {
+      _reload();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(existing == null
+              ? '${_capital(def.noun)} cadastrado com sucesso.'
+              : 'Alterações salvas.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openDetail(Map<String, dynamic> item) async {
+    final changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (ctx) => EntityDetailScreen(
+          def: def,
+          item: item,
+          onEdit: () async {
+            Navigator.pop(ctx);
+            await _openForm(item);
+          },
+          onDelete: () async {
+            await Db.delete(def.table, '${item['id']}');
+            if (ctx.mounted) Navigator.pop(ctx, true);
+          },
+        ),
+      ),
+    );
+    if (changed == true && mounted) _reload();
+  }
+
+  Future<void> _confirmDelete(Map<String, dynamic> item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Excluir registro'),
+        content: Text('Deseja excluir "${def.titleOf(item)}"?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: BrandColors.danger),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      try {
+        await Db.delete(def.table, '${item['id']}');
+        _reload();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Erro ao excluir: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  bool _matchesSearch(Map<String, dynamic> m) {
+    if (_query.isEmpty) return true;
+    return def.matches(m, _query);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openForm(),
+        icon: const Icon(Icons.add),
+        label: const Text('Novo'),
+      ),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return _ErrorState(onRetry: _reload, error: '${snap.error}');
+          }
+          final all = snap.data ?? const [];
+          final items = all.where((m) {
+            if (!_matchesSearch(m)) {
+              return false;
+            }
+            if (def.table == 'producao') {
+              if (_filtroEquipeId != null &&
+                  '${m['equipe_id']}' != _filtroEquipeId) {
+                return false;
+              }
+              if (_filtroFuncionarioId != null &&
+                  '${m['funcionario_id']}' != _filtroFuncionarioId) {
+                return false;
+              }
+            }
+            return true;
+          }).toList();
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: TextField(
+                  onChanged: (v) => setState(() => _query = v),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar ${def.noun}...',
+                    prefixIcon: const Icon(Icons.search),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+              if (def.table == 'producao' &&
+                  (_equipesOptions.isNotEmpty ||
+                      _funcionariosOptions.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                  child: _FilterBar(
+                    equipes: _equipesOptions,
+                    funcionarios: _funcionariosOptions,
+                    equipeId: _filtroEquipeId,
+                    funcionarioId: _filtroFuncionarioId,
+                    onEquipeChanged: (v) => setState(() => _filtroEquipeId = v),
+                    onFuncionarioChanged: (v) =>
+                        setState(() => _filtroFuncionarioId = v),
+                  ),
+                ),
+              if (def.headerOf != null && items.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                  child: def.headerOf!(items),
+                ),
+              Expanded(
+                child: all.isEmpty
+                    ? _EmptyState(def: def, onAdd: () => _openForm())
+                    : RefreshIndicator(
+                        onRefresh: () async => _reload(),
+                        child: ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                          itemCount: items.length,
+                          itemBuilder: (context, i) => _EntityTile(
+                            def: def,
+                            item: items[i],
+                            onTap: () => _openDetail(items[i]),
+                            onEdit: () => _openForm(items[i]),
+                            onDelete: () => _confirmDelete(items[i]),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _EntityTile extends StatelessWidget {
+  final EntityDef def;
+  final Map<String, dynamic> item;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  const _EntityTile({
+    required this.def,
+    required this.item,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = def.subtitleOf(item);
+    final trailing = def.trailingOf?.call(item);
+    final leading = def.leadingOf?.call(item) ??
+        CircleAvatar(
+          radius: 24,
+          backgroundColor: BrandColors.forest.withValues(alpha: 0.15),
+          child: Icon(def.icon, color: BrandColors.forest),
+        );
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: Theme.of(context)
+              .colorScheme
+              .outlineVariant
+              .withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              leading,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(def.titleOf(item),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 15)),
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle,
+                          style: TextStyle(
+                              fontSize: 13,
+                              height: 1.3,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.6))),
+                    ],
+                  ],
+                ),
+              ),
+              if (trailing != null) trailing,
+              const SizedBox(width: 4),
+              _IconButton(
+                icon: Icons.edit_outlined,
+                onTap: onEdit,
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 20),
+                onSelected: (v) {
+                  if (v == 'editar') onEdit();
+                  if (v == 'excluir') onDelete();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'editar', child: Text('Editar')),
+                  PopupMenuItem(value: 'excluir', child: Text('Excluir')),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _IconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: BrandColors.forest.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 18, color: BrandColors.forest),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final EntityDef def;
+  final VoidCallback onAdd;
+  const _EmptyState({required this.def, required this.onAdd});
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(def.icon, size: 64, color: Colors.grey.withValues(alpha: 0.5)),
+            const SizedBox(height: 16),
+            Text('Nenhum ${def.noun} cadastrado',
+                style:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 6),
+            Text('Toque em "Novo" para adicionar o primeiro.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.withValues(alpha: 0.9))),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add),
+              label: const Text('Novo'),
+              style: FilledButton.styleFrom(minimumSize: const Size(160, 48)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final VoidCallback onRetry;
+  final String error;
+  const _ErrorState({required this.onRetry, required this.error});
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 56, color: BrandColors.alert),
+            const SizedBox(height: 16),
+            const Text('Não foi possível carregar os dados',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 6),
+            Text(error,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 12, color: Colors.grey.withValues(alpha: 0.9))),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Tentar novamente'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(180, 48)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// =========================================================
+// Formulário de criação/edição
+// =========================================================
+class _EntityForm extends StatefulWidget {
+  final EntityDef def;
+  final Map<String, dynamic>? existing;
+  const _EntityForm({required this.def, this.existing});
+
+  @override
+  State<_EntityForm> createState() => _EntityFormState();
+}
+
+class _EntityFormState extends State<_EntityForm> {
+  final _formKey = GlobalKey<FormState>();
+  final Map<String, TextEditingController> _ctrls = {};
+  final Map<String, String?> _selects = {};
+  final Map<String, String?> _refValues = {};
+  final Map<String, Set<String>> _multiValues = {};
+  final Map<String, List<Map<String, dynamic>>> _optionsByTable = {};
+  bool _loading = true;
+  bool _saving = false;
+  String? _loadError;
+
+  EntityDef get def => widget.def;
+
+  @override
+  void initState() {
+    super.initState();
+    for (final f in def.fields) {
+      final initial = widget.existing?[f.key];
+      switch (f.type) {
+        case FieldType.select:
+          final val = initial?.toString();
+          _selects[f.key] =
+              (val != null && f.options.contains(val)) ? val : null;
+          break;
+        case FieldType.reference:
+          _refValues[f.key] = initial?.toString();
+          break;
+        case FieldType.multiReference:
+          _multiValues[f.key] = _initialMulti(f);
+          break;
+        case FieldType.date:
+          final initial = widget.existing?[f.key]?.toString();
+          _ctrls[f.key] = TextEditingController(
+              text: initial == null || initial.isEmpty ? '' : initial);
+          break;
+        default:
+          _ctrls[f.key] = TextEditingController(
+              text: initial == null ? '' : _fmtInitial(initial));
+      }
+    }
+    _loadOptions();
+  }
+
+  Set<String> _initialMulti(FieldDef f) {
+    final embed = widget.existing?[f.joinAlias];
+    if (embed is List) {
+      return embed
+          .map((e) => e is Map ? '${e[f.joinChildKey]}' : '')
+          .where((e) => e.isNotEmpty)
+          .toSet();
+    }
+    return <String>{};
+  }
+
+  Future<void> _loadOptions() async {
+    try {
+      final tables = <String>{
+        for (final f in def.referenceFields) f.refTable!,
+        for (final f in def.multiFields) f.refTable!,
+      };
+      for (final t in tables) {
+        _optionsByTable[t] = await Db.options(t);
+      }
+      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = '$e';
+        });
+      }
+    }
+  }
+
+  String _fmtInitial(Object v) {
+    final s = v.toString();
+    if (s.endsWith('.0')) return s.substring(0, s.length - 2);
+    return s;
+  }
+
+  @override
+  void dispose() {
+    for (final c in _ctrls.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    final data = <String, dynamic>{};
+    for (final f in def.fields) {
+      if (f.type == FieldType.multiReference) continue;
+      dynamic value;
+      if (f.type == FieldType.select) {
+        value = _selects[f.key];
+      } else if (f.type == FieldType.reference) {
+        value = _refValues[f.key];
+      } else if (f.type == FieldType.date) {
+        final raw = _ctrls[f.key]!.text.trim();
+        value = raw.isEmpty ? null : raw;
+      } else {
+        final raw = _ctrls[f.key]!.text.trim();
+        if (raw.isEmpty) {
+          value = null;
+        } else if (f.type == FieldType.number) {
+          value = int.tryParse(raw.replaceAll(RegExp(r'[^0-9-]'), ''));
+        } else if (f.type == FieldType.decimal) {
+          value = double.tryParse(raw.replaceAll(',', '.'));
+        } else {
+          value = raw;
+        }
+      }
+      data[f.key] = value;
+    }
+    try {
+      String id;
+      if (widget.existing == null) {
+        id = await Db.insertReturningId(def.table, data);
+      } else {
+        id = '${widget.existing!['id']}';
+        await Db.update(def.table, id, data);
+      }
+      // sincroniza relações muitos-para-muitos (ex: integrantes)
+      for (final f in def.multiFields) {
+        await Db.setJoin(
+          joinTable: f.joinTable!,
+          parentKey: f.joinParentKey!,
+          parentId: id,
+          childKey: f.joinChildKey!,
+          childIds: _multiValues[f.key]!.toList(),
+        );
+      }
+      // Produção: quando vinculada a uma equipe, replica para cada integrante
+      if (def.table == 'producao' && _refValues['equipe_id'] != null) {
+        await _replicarProducaoParaEquipe(id, data);
+      }
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao salvar: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _replicarProducaoParaEquipe(
+      String producaoId, Map<String, dynamic> base) async {
+    final equipeId = _refValues['equipe_id'];
+    if (equipeId == null || equipeId.isEmpty) return;
+    try {
+      final membros = await Db.list('equipe_membros',
+          select: 'funcionario_id')
+          .then((l) => l
+              .where((m) => '${m['equipe_id']}' == equipeId)
+              .map((m) => '${m['funcionario_id']}')
+              .where((id) => id.isNotEmpty && id != 'null')
+              .toList());
+      if (membros.isEmpty) return;
+      final volumeTotal = double.tryParse('${base['volume_m3']}') ?? 0;
+      final arvoresTotal = int.tryParse('${base['arvores']}') ?? 0;
+      final valorUnitario = double.tryParse('${base['valor_unitario']}') ?? 0;
+      final tipoPagamento = base['tipo_pagamento']?.toString() ?? 'Metro cúbico';
+      final volumeIndividual = volumeTotal / membros.length;
+      final arvoresIndividual = arvoresTotal ~/ membros.length;
+      final rows = membros.map((funcId) {
+        final row = Map<String, dynamic>.from(base);
+        row.remove('id');
+        row['equipe_id'] = equipeId;
+        row['funcionario_id'] = funcId;
+        row['volume_m3'] = volumeIndividual;
+        row['arvores'] = arvoresIndividual;
+        row['valor_unitario'] = valorUnitario;
+        row['tipo_pagamento'] = tipoPagamento;
+        row['producao_origem_id'] = producaoId;
+        return row;
+      }).toList();
+      await Db.insertMany('producao', rows);
+      // Gera despesa de pagamento para cada integrante
+      for (final row in rows) {
+        await _gerarLancamentoPagamentoProducao(row);
+      }
+    } catch (_) {
+      // Não quebra o fluxo principal; apenas não replica.
+    }
+  }
+
+  Future<void> _gerarLancamentoPagamentoProducao(
+      Map<String, dynamic> producao) async {
+    final tipo = producao['tipo_pagamento']?.toString() ?? 'Metro cúbico';
+    final unitario = double.tryParse('${producao['valor_unitario']}') ?? 0;
+    final volume = double.tryParse('${producao['volume_m3']}') ?? 0;
+    final arvores = int.tryParse('${producao['arvores']}') ?? 0;
+    double valor = 0;
+    switch (tipo) {
+      case 'Diária':
+        valor = unitario;
+        break;
+      case 'Metro cúbico':
+        valor = volume * unitario;
+        break;
+      case 'Árvore':
+        valor = arvores * unitario;
+        break;
+      case 'Tarefa':
+        valor = unitario;
+        break;
+      default:
+        valor = volume * unitario;
+    }
+    if (valor <= 0) return;
+    final funcId = producao['funcionario_id']?.toString();
+    String descricao = 'Pagamento de produção';
+    if (funcId != null && funcId.isNotEmpty) {
+      final func = _optionsByTable['funcionarios']?.firstWhere(
+        (m) => '${m['id']}' == funcId,
+        orElse: () => const <String, dynamic>{},
+      );
+      if (func != null && func.isNotEmpty) {
+        descricao = 'Pagamento: ${func['nome']} (${func['forma_pagamento'] ?? tipo})';
+      }
+    }
+    await Db.insert('lancamentos', {
+      'tipo': 'Despesa',
+      'descricao': descricao,
+      'categoria': 'Salário',
+      'valor': valor,
+      'data': producao['data'],
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final editing = widget.existing != null;
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottom),
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.88,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        builder: (context, scrollCtrl) => Form(
+          key: _formKey,
+          child: ListView(
+            controller: scrollCtrl,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: BrandColors.forest.withValues(alpha: 0.15),
+                    child: Icon(def.icon, color: BrandColors.forest),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    editing ? 'Editar ${def.noun}' : 'Novo ${def.noun}',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_loadError != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Text('Erro ao carregar opções: $_loadError',
+                      style: const TextStyle(color: BrandColors.danger)),
+                )
+              else ...[
+                ...def.fields.map(_buildField),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.check),
+                  label: Text(_saving ? 'Salvando...' : 'Salvar'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildField(FieldDef f) {
+    Widget field;
+    switch (f.type) {
+      case FieldType.select:
+        field = DropdownButtonFormField<String>(
+          initialValue: _selects[f.key],
+          isExpanded: true,
+          decoration: InputDecoration(labelText: f.label),
+          items: f.options
+              .map((o) => DropdownMenuItem(value: o, child: Text(o)))
+              .toList(),
+          validator: (v) =>
+              f.required && (v == null) ? 'Campo obrigatório' : null,
+          onChanged: (v) => setState(() => _selects[f.key] = v),
+        );
+        break;
+      case FieldType.reference:
+        field = _buildReference(f);
+        break;
+      case FieldType.multiReference:
+        field = _buildMulti(f);
+        break;
+      case FieldType.date:
+        field = _buildDate(f);
+        break;
+      default:
+        field = TextFormField(
+          controller: _ctrls[f.key],
+          keyboardType: _keyboard(f.type),
+          inputFormatters: _formatters(f.type),
+          maxLines: f.type == FieldType.multiline ? 3 : 1,
+          decoration: InputDecoration(
+            labelText: f.label,
+            suffixText: f.suffix,
+          ),
+          validator: (v) => f.required && (v == null || v.trim().isEmpty)
+              ? 'Campo obrigatório'
+              : null,
+        );
+    }
+    return Padding(padding: const EdgeInsets.only(bottom: 14), child: field);
+  }
+
+  Widget _buildDate(FieldDef f) {
+    final ctrl = _ctrls.putIfAbsent(f.key, () => TextEditingController());
+    if (ctrl.text.isEmpty) {
+      ctrl.text = _today;
+    }
+    return TextFormField(
+      controller: ctrl,
+      readOnly: true,
+      decoration: InputDecoration(
+        labelText: f.label,
+        suffixIcon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.calendar_today, size: 20),
+              onPressed: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: DateTime.now(),
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2100),
+                );
+                if (picked != null) {
+                  ctrl.text = DateFormat('dd/MM/yyyy').format(picked);
+                }
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.today, size: 20),
+              tooltip: 'Hoje',
+              onPressed: () => ctrl.text = _today,
+            ),
+          ],
+        ),
+      ),
+      validator: (v) => f.required && (v == null || v.trim().isEmpty)
+          ? 'Campo obrigatório'
+          : null,
+    );
+  }
+
+  String get _today {
+    final hoje = DateTime.now();
+    return '${hoje.day.toString().padLeft(2, '0')}/${hoje.month.toString().padLeft(2, '0')}/${hoje.year}';
+  }
+
+  Widget _buildReference(FieldDef f) {
+    final opts = _optionsByTable[f.refTable] ?? const [];
+    if (opts.isEmpty) {
+      return InputDecorator(
+        decoration: InputDecoration(
+          labelText: f.label,
+          errorText: f.required ? 'Cadastre "${f.label}" primeiro' : null,
+        ),
+        child: Text('Nenhum ${f.label.toLowerCase()} cadastrado ainda',
+            style: TextStyle(color: Colors.grey.withValues(alpha: 0.9))),
+      );
+    }
+    final selectedValue =
+        opts.any((o) => '${o['id']}' == _refValues[f.key]) ? _refValues[f.key] : null;
+    return DropdownButtonFormField<String?>(
+      initialValue: selectedValue,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: f.label),
+      items: [
+        if (!f.required)
+          const DropdownMenuItem<String?>(
+              value: null, child: Text('— nenhum —')),
+        ...opts.map((o) => DropdownMenuItem(
+              value: '${o['id']}',
+              child: Text(f.refLabelOf!(o), overflow: TextOverflow.ellipsis),
+            )),
+      ],
+      validator: (v) =>
+          f.required && (v == null) ? 'Selecione um(a) ${f.label}' : null,
+      onChanged: (v) {
+        setState(() => _refValues[f.key] = v);
+        if (def.table == 'producao' && f.key == 'funcionario_id' && v != null) {
+          _aplicarFormaPagamentoDoFuncionario(v);
+        }
+        if (def.table == 'producao' && f.key == 'equipe_id' && v != null) {
+          _aplicarFormaPagamentoDaEquipe(v);
+        }
+      },
+    );
+  }
+
+  Future<void> _aplicarFormaPagamentoDoFuncionario(String funcId) async {
+    final opts = _optionsByTable['funcionarios'] ?? [];
+    final func = opts.firstWhere(
+      (m) => '${m['id']}' == funcId,
+      orElse: () => const <String, dynamic>{},
+    );
+    if (func.isEmpty) return;
+    final forma = func['forma_pagamento']?.toString();
+    final base = func['valor_base']?.toString();
+    if (forma != null && forma.isNotEmpty) {
+      setState(() => _selects['tipo_pagamento'] = forma);
+    }
+    if (base != null && base.isNotEmpty) {
+      _ctrls['valor_unitario']?.text = base.replaceAll('.', ',');
+    }
+  }
+
+  Future<void> _aplicarFormaPagamentoDaEquipe(String equipeId) async {
+    final opts = _optionsByTable['equipes'] ?? [];
+    final equipe = opts.firstWhere(
+      (m) => '${m['id']}' == equipeId,
+      orElse: () => const <String, dynamic>{},
+    );
+    if (equipe.isEmpty) return;
+    final liderId = equipe['lider_id']?.toString();
+    if (liderId == null || liderId.isEmpty) return;
+    _aplicarFormaPagamentoDoFuncionario(liderId);
+  }
+
+  Widget _buildMulti(FieldDef f) {
+    final opts = _optionsByTable[f.refTable] ?? const [];
+    final selected = _multiValues[f.key]!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('${f.label} (${selected.length})',
+            style: const TextStyle(
+                fontWeight: FontWeight.w600, color: Colors.black87)),
+        const SizedBox(height: 8),
+        if (opts.isEmpty)
+          Text('Cadastre funcionários primeiro para adicioná-los.',
+              style: TextStyle(color: Colors.grey.withValues(alpha: 0.9)))
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: opts.map((o) {
+              final id = '${o['id']}';
+              final on = selected.contains(id);
+              return FilterChip(
+                label: Text(f.refLabelOf!(o)),
+                selected: on,
+                onSelected: (v) => setState(() {
+                  if (v) {
+                    selected.add(id);
+                  } else {
+                    selected.remove(id);
+                  }
+                }),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
+  TextInputType? _keyboard(FieldType t) {
+    switch (t) {
+      case FieldType.phone:
+        return TextInputType.phone;
+      case FieldType.number:
+        return TextInputType.number;
+      case FieldType.decimal:
+        return const TextInputType.numberWithOptions(decimal: true);
+      case FieldType.multiline:
+        return TextInputType.multiline;
+      case FieldType.date:
+        return TextInputType.datetime;
+      default:
+        return TextInputType.text;
+    }
+  }
+
+  List<TextInputFormatter>? _formatters(FieldType t) {
+    if (t == FieldType.number) {
+      return [FilteringTextInputFormatter.digitsOnly];
+    }
+    if (t == FieldType.decimal) {
+      return [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))];
+    }
+    return null;
+  }
+}
+
+class _FilterBar extends StatelessWidget {
+  final List<Map<String, dynamic>> equipes;
+  final List<Map<String, dynamic>> funcionarios;
+  final String? equipeId;
+  final String? funcionarioId;
+  final ValueChanged<String?> onEquipeChanged;
+  final ValueChanged<String?> onFuncionarioChanged;
+
+  const _FilterBar({
+    required this.equipes,
+    required this.funcionarios,
+    this.equipeId,
+    this.funcionarioId,
+    required this.onEquipeChanged,
+    required this.onFuncionarioChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String?>(
+                initialValue: equipeId,
+                decoration: const InputDecoration(
+                  labelText: 'Filtrar por equipe',
+                  prefixIcon: Icon(Icons.groups),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(value: null, child: Text('Todas as equipes')),
+                  ...equipes.map((e) => DropdownMenuItem(
+                        value: '${e['id']}',
+                        child: Text(_lblNome(e)),
+                      )),
+                ],
+                onChanged: onEquipeChanged,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButtonFormField<String?>(
+                initialValue: funcionarioId,
+                decoration: const InputDecoration(
+                  labelText: 'Filtrar por funcionário',
+                  prefixIcon: Icon(Icons.person),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(value: null, child: Text('Todos os funcionários')),
+                  ...funcionarios.map((f) => DropdownMenuItem(
+                        value: '${f['id']}',
+                        child: Text(_lblFuncionario(f)),
+                      )),
+                ],
+                onChanged: onFuncionarioChanged,
+              ),
+            ),
+          ],
+        ),
+        if (equipeId != null || funcionarioId != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () {
+                  onEquipeChanged(null);
+                  onFuncionarioChanged(null);
+                },
+                icon: const Icon(Icons.clear),
+                label: const Text('Limpar filtros'),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+String _lblFuncionario(Map m) {
+  final nome = m['nome']?.toString() ?? '';
+  final cargo = m['cargo']?.toString() ?? '';
+  return [nome, cargo].where((e) => e.isNotEmpty).join(' - ');
+}
+
+String _lblNome(Map m) => m['nome']?.toString() ?? '';
+
+String _capital(String s) =>
+    s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);

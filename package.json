@@ -1,0 +1,8 @@
+{
+  "name": "silvora-florestal",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "vercel-build": "bash vercel_build.sh"
+  }
+}

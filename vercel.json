@@ -1,20 +1,13 @@
 {
   "version": 2,
   "name": "silvora-florestal",
-  "builds": [
-    {
-      "src": "build/web/**",
-      "use": "@vercel/static"
-    }
-  ],
+  "buildCommand": "npm run vercel-build",
+  "outputDirectory": "build/web",
+  "framework": null,
   "routes": [
     {
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "github": {
-    "enabled": true,
-    "silent": false
-  }
+  ]
 }

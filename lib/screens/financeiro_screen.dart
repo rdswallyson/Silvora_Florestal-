@@ -131,11 +131,11 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
             orElse: () => <String, dynamic>{'nome': 'Equipe ${e.key}'},
           );
           final vol = volumeEquipes[e.key] ?? 0;
-          final custo = vol > 0 ? e.value / vol : 0;
+          final custo = vol > 0 ? e.value / vol : 0.0;
           return _CustoRow(
               nome: '${equipe['nome']}',
               custo: custo,
-              volume: vol);
+              volume: vol.toDouble());
         }).toList()
           ..sort((a, b) => b.custo.compareTo(a.custo));
 
@@ -328,7 +328,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       BrandColors.success,
     ];
     return map.entries.toList().asMap().entries.map((e) {
-      final pct = total > 0 ? (e.value.value / total) * 100 : 0;
+      final pct = total > 0 ? (e.value.value / total) * 100 : 0.0;
       return _Cat(e.value.key, cores[e.key % cores.length], pct);
     }).toList();
   }
@@ -515,7 +515,7 @@ class _PieChart extends StatelessWidget {
       BrandColors.success,
     ];
     return map.entries.toList().asMap().entries.map((e) {
-      final pct = total > 0 ? (e.value.value / total) * 100 : 0;
+      final pct = total > 0 ? (e.value.value / total) * 100 : 0.0;
       return _Cat(e.value.key, cores[e.key % cores.length], pct);
     }).toList();
   }

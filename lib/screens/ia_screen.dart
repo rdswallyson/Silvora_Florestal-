@@ -97,7 +97,7 @@ class _IaScreenState extends State<IaScreen> {
             if (tipo == 'Árvore') return s + a * unit;
             return s + v * unit;
           });
-          final custo = volume > 0 ? despesas / volume : 0;
+          final custo = volume > 0 ? despesas / volume : 0.0;
           if (custo > maiorCusto) {
             maiorCusto = custo;
             maiorId = e.key;

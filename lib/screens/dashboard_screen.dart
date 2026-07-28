@@ -108,7 +108,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'Sexta-feira',
       'Sábado'
     ];
-    return '${semana[d.weekday % 7]}, ${d.day} de ${_meses[d.month - 1]} de ${d.year}';
+    final meses = [
+      'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+      'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+    ];
+    return '${semana[d.weekday % 7]}, ${d.day} de ${meses[d.month - 1]} de ${d.year}';
   }
 
   String _saudacao() {

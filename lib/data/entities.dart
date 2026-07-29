@@ -142,17 +142,25 @@ String _lblTalhao(Map<String, dynamic> m) =>
 
 /// Registro central de todos os módulos, por rota.
 double _calcValorProducao(Map<String, dynamic> m) {
-  final tipo = _s(m, 'tipo_pagamento');
-  final unitario = _d(m, 'valor_unitario');
-  switch (tipo) {
+  // Obsoleto: cálculo agora é feito em producao_funcionarios
+  return 0;
+}
+
+String _valorFuncionarioLabel(Map<String, dynamic> m) {
+  final forma = _s(m, 'forma_remuneracao');
+  switch (forma) {
     case 'Diária':
-    case 'Tarefa':
-      return unitario;
-    case 'Árvore':
-      return _i(m, 'arvores') * unitario;
+      return 'R\$ ${_d(m, 'valor_diaria').toStringAsFixed(2)}/dia';
+    case 'Hora':
+      return 'R\$ ${_d(m, 'valor_hora').toStringAsFixed(2)}/h';
     case 'Metro cúbico':
+      return 'R\$ ${_d(m, 'valor_m3').toStringAsFixed(2)}/m³';
+    case 'Árvore':
+      return 'R\$ ${_d(m, 'valor_arvore').toStringAsFixed(2)}/árvore';
+    case 'Produção fixa':
+      return 'R\$ ${_d(m, 'valor_producao_fixa').toStringAsFixed(2)} fixo';
     default:
-      return _d(m, 'volume_m3') * unitario;
+      return '';
   }
 }
 
@@ -178,37 +186,69 @@ final Map<String, EntityDef> kEntities = {
       FieldDef('rg', 'RG'),
       FieldDef('endereco', 'Endereço'),
       FieldDef('data_admissao', 'Data de admissão', type: FieldType.date),
-      FieldDef('forma_pagamento', 'Forma de pagamento',
+      FieldDef('forma_remuneracao', 'Forma de remuneração',
           type: FieldType.select, options: [
         'Diária',
         'Metro cúbico',
         'Árvore',
-        'Tarefa',
-        'Mensal',
+        'Hora',
+        'Produção fixa',
       ]),
-      FieldDef('valor_base', 'Valor base (R\$)',
+      FieldDef('valor_diaria', 'Valor da diária (R\$)',
           type: FieldType.decimal, suffix: 'R\$'),
-      FieldDef('salario', 'Salário mensal (R\$)',
+      FieldDef('valor_hora', 'Valor por hora (R\$)',
+          type: FieldType.decimal, suffix: 'R\$'),
+      FieldDef('valor_m3', 'Valor por m³ (R\$)',
+          type: FieldType.decimal, suffix: 'R\$'),
+      FieldDef('valor_arvore', 'Valor por árvore (R\$)',
+          type: FieldType.decimal, suffix: 'R\$'),
+      FieldDef('valor_producao_fixa', 'Valor produção fixa (R\$)',
           type: FieldType.decimal, suffix: 'R\$'),
       FieldDef('pix', 'Chave PIX'),
       FieldDef('contato_emergencia', 'Contato de emergência'),
       FieldDef('situacao', 'Situação', type: FieldType.select, options: [
         'Ativo',
-        'Férias',
-        'Afastado',
         'Inativo',
       ]),
     ],
     titleOf: (m) => _s(m, 'nome'),
-    subtitleOf: (m) => [
-      _s(m, 'cargo'),
-      _s(m, 'telefone'),
-      if (_s(m, 'forma_pagamento').isNotEmpty) _s(m, 'forma_pagamento'),
-      if (_d(m, 'valor_base') > 0)
-        'R\$ ${_d(m, 'valor_base').toStringAsFixed(2)}',
-      if (_s(m, 'forma_pagamento') == 'Mensal' && _d(m, 'salario') > 0)
-        'R\$ ${_d(m, 'salario').toStringAsFixed(2)}/mês',
-    ].where((e) => e.isNotEmpty).join(' • '),
+    subtitleOf: (m) {
+      final forma = _s(m, 'forma_remuneracao');
+      String? valorLabel;
+      switch (forma) {
+        case 'Diária':
+          valorLabel = _d(m, 'valor_diaria') > 0
+              ? 'R\$ ${_d(m, 'valor_diaria').toStringAsFixed(2)}/dia'
+              : null;
+          break;
+        case 'Hora':
+          valorLabel = _d(m, 'valor_hora') > 0
+              ? 'R\$ ${_d(m, 'valor_hora').toStringAsFixed(2)}/h'
+              : null;
+          break;
+        case 'Metro cúbico':
+          valorLabel = _d(m, 'valor_m3') > 0
+              ? 'R\$ ${_d(m, 'valor_m3').toStringAsFixed(2)}/m³'
+              : null;
+          break;
+        case 'Árvore':
+          valorLabel = _d(m, 'valor_arvore') > 0
+              ? 'R\$ ${_d(m, 'valor_arvore').toStringAsFixed(2)}/árvore'
+              : null;
+          break;
+        case 'Produção fixa':
+          valorLabel = _d(m, 'valor_producao_fixa') > 0
+              ? 'R\$ ${_d(m, 'valor_producao_fixa').toStringAsFixed(2)} fixo'
+              : null;
+          break;
+      }
+      return [
+        _s(m, 'cargo'),
+        _s(m, 'telefone'),
+        if (forma.isNotEmpty) forma,
+        valorLabel,
+      ].where((e) => e?.isNotEmpty ?? false).join(' • ');
+    },
     leadingOf: (m) => CircleAvatar(
       radius: 24,
       backgroundColor: BrandColors.forest.withValues(alpha: 0.15),
@@ -499,37 +539,33 @@ final Map<String, EntityDef> kEntities = {
   ),
   'producao': EntityDef(
     table: 'producao',
-    noun: 'registro',
+    noun: 'produção',
     icon: Icons.grass_outlined,
     selectQuery:
         '*, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)',
     fields: [
-      FieldDef('equipe_id', 'Equipe',
-          type: FieldType.reference,
-          refTable: 'equipes',
-          refLabelOf: _lblNome),
+      FieldDef('tipo_producao', 'Tipo de produção',
+          type: FieldType.select,
+          required: true,
+          options: ['Individual', 'Equipe']),
       FieldDef('funcionario_id', 'Funcionário',
           type: FieldType.reference,
           refTable: 'funcionarios',
           refLabelOf: _lblFuncionario),
+      FieldDef('equipe_id', 'Equipe',
+          type: FieldType.reference,
+          refTable: 'equipes',
+          refLabelOf: _lblNome),
       FieldDef('talhao_id', 'Talhão',
           type: FieldType.reference,
           required: true,
           refTable: 'talhoes',
           refLabelOf: _lblTalhao),
       const FieldDef('data', 'Data', type: FieldType.date),
-      const FieldDef('volume_m3', 'Volume (m³)',
+      const FieldDef('volume_total', 'Volume total (m³)',
           type: FieldType.decimal, suffix: 'm³'),
-      const FieldDef('arvores', 'Árvores', type: FieldType.number),
-      const FieldDef('tipo_pagamento', 'Tipo de pagamento',
-          type: FieldType.select, options: [
-        'Diária',
-        'Metro cúbico',
-        'Árvore',
-        'Tarefa',
-      ]),
-      const FieldDef('valor_unitario', 'Valor unitário (R\$)',
-          type: FieldType.decimal, suffix: 'R\$'),
+      const FieldDef('total_arvores', 'Total de árvores',
+          type: FieldType.number),
       const FieldDef('observacoes', 'Observações',
           type: FieldType.multiline),
     ],
@@ -542,50 +578,59 @@ final Map<String, EntityDef> kEntities = {
     ].where((e) => e.isNotEmpty).join(' • '),
     subtitleOf: (m) => [
       _s(m, 'data'),
-      _s(m, 'tipo_pagamento'),
-      if (_d(m, 'valor_unitario') > 0)
-        'R\$ ${_d(m, 'valor_unitario').toStringAsFixed(2)}',
-      if (_i(m, 'arvores') > 0) '${_i(m, 'arvores')} árvores',
+      _s(m, 'tipo_producao'),
+      if (_i(m, 'total_arvores') > 0) '${_i(m, 'total_arvores')} árvores',
     ].where((e) => e.isNotEmpty).join(' • '),
     leadingOf: (m) => _iconAvatar(Icons.grass, BrandColors.forest),
-    trailingOf: (m) => Text('${_d(m, 'volume_m3').toStringAsFixed(1)} m³',
+    trailingOf: (m) => Text('${_d(m, 'volume_total').toStringAsFixed(1)} m³',
         style: const TextStyle(
             fontWeight: FontWeight.w800,
             fontSize: 16,
             color: BrandColors.forest)),
     headerOf: (items) {
-      final total = items.fold<double>(0, (s, m) => s + _d(m, 'volume_m3'));
-      final arvores = items.fold<int>(0, (s, m) => s + _i(m, 'arvores'));
-      final valor = items.fold<double>(0, (s, m) => s + _calcValorProducao(m));
-      return Column(
+      final total = items.fold<double>(0, (s, m) => s + _d(m, 'volume_total'));
+      final arvores =
+          items.fold<int>(0, (s, m) => s + _i(m, 'total_arvores'));
+      return Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                  child: _MiniStat('Registros', '${items.length}', Icons.list_alt,
-                      BrandColors.info)),
-              const SizedBox(width: 12),
-              Expanded(
-                  child: _MiniStat('Volume total',
-                      '${total.toStringAsFixed(1)} m³', Icons.grass,
-                      BrandColors.forest)),
-              const SizedBox(width: 12),
-              Expanded(
-                  child: _MiniStat('Árvores', '$arvores', Icons.park_outlined,
-                      BrandColors.success)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                  child: _MiniStat('Valor total a pagar',
-                      'R\$ ${valor.toStringAsFixed(2)}', Icons.payments,
-                      BrandColors.info)),
-            ],
-          ),
+          Expanded(
+              child: _MiniStat('Registros', '${items.length}', Icons.list_alt,
+                  BrandColors.info)),
+          const SizedBox(width: 12),
+          Expanded(
+              child: _MiniStat('Volume total',
+                  '${total.toStringAsFixed(1)} m³', Icons.grass,
+                  BrandColors.forest)),
+          const SizedBox(width: 12),
+          Expanded(
+              child: _MiniStat('Árvores', '$arvores', Icons.park_outlined,
+                  BrandColors.success)),
         ],
       );
+    },
+  ),
+  'producao_funcionarios': EntityDef(
+    table: 'producao_funcionarios',
+    noun: 'participante',
+    icon: Icons.person_outline,
+    selectQuery:
+        '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao), producao:producao!producao_id(data, talhao:talhao_id(codigo), equipe:equipe_id(nome))',
+    fields: const [],
+    titleOf: (m) => _ref(m, 'funcionario', 'nome').isNotEmpty
+        ? _ref(m, 'funcionario', 'nome')
+        : 'Participante',
+    subtitleOf: (m) => [
+      _ref(m, 'funcionario', 'forma_remuneracao'),
+      if (_d(m, 'valor_total') > 0)
+        'R\$ ${_d(m, 'valor_total').toStringAsFixed(2)}',
+      if (_d(m, 'quantidade_calculo') > 0)
+        '${_d(m, 'quantidade_calculo').toStringAsFixed(0)} un',
+    ].where((e) => e.isNotEmpty).join(' • '),
+    leadingOf: (m) => _iconAvatar(Icons.person, BrandColors.forest),
+    trailingOf: (m) {
+      final participou = m['participou'] ?? true;
+      if (participou == true) return null;
+      return const StatusChip('Não participou', BrandColors.alert);
     },
   ),
   'transporte': EntityDef(

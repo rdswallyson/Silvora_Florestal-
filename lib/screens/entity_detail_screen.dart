@@ -194,7 +194,8 @@ class _FuncionarioDetails extends StatelessWidget {
   Widget build(BuildContext context) {
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
-        Db.list('producao', select: '*, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo)')
+        Db.list('producao_funcionarios',
+            select: '*, producao:producao!producao_id(*, talhao:talhoes!talhao_id(codigo), equipe:equipes!equipe_id(nome))')
             .then((l) => l.where((m) => '${m['funcionario_id']}' == funcionarioId).toList()),
         Db.list('equipes',
             select: '*, lider:funcionarios!lider_id(nome), veiculo:veiculos!veiculo_id(nome), membros:equipe_membros(funcionario_id, funcionarios!funcionario_id(nome))')
@@ -215,20 +216,7 @@ class _FuncionarioDetails extends StatelessWidget {
         final equipes = ((snap.data?[1] as List?) ?? []).cast<Map<String, dynamic>>();
         final equipamentos = ((snap.data?[2] as List?) ?? []).cast<Map<String, dynamic>>();
 
-        final totalReceber = producao.fold<double>(0, (s, m) {
-          final tipo = _s(m['tipo_pagamento']);
-          final unitario = _d(m, 'valor_unitario');
-          switch (tipo) {
-            case 'Diária':
-            case 'Tarefa':
-              return s + unitario;
-            case 'Árvore':
-              return s + (_i(m, 'arvores') * unitario);
-            case 'Metro cúbico':
-            default:
-              return s + (_d(m, 'volume_m3') * unitario);
-          }
-        });
+        final totalReceber = producao.fold<double>(0, (s, m) => s + _d(m, 'valor_total'));
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -283,16 +271,10 @@ class _FuncionarioDetails extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               ...producao.take(5).map((p) {
-                final tipo = _s(p['tipo_pagamento']);
-                final unitario = _d(p, 'valor_unitario');
-                final valor = switch (tipo) {
-                  'Diária' || 'Tarefa' => unitario,
-                  'Árvore' => _i(p, 'arvores') * unitario,
-                  _ => _d(p, 'volume_m3') * unitario,
-                };
+                final prod = p['producao'] as Map? ?? {};
                 return _DetailRow(
-                  label: '${_ref(p, 'talhao', 'codigo')}',
-                  value: '${_s(p['data'])} • ${_d(p, 'volume_m3').toStringAsFixed(1)} m³ • R\$ ${valor.toStringAsFixed(2)}',
+                  label: '${_ref(prod, 'talhao', 'codigo')}',
+                  value: '${_s(prod['data'])} • ${_d(prod, 'volume_total').toStringAsFixed(1)} m³ • R\$ ${_d(p, 'valor_total').toStringAsFixed(2)}',
                 );
               }),
             ],
@@ -337,18 +319,13 @@ class _MiniStat extends StatelessWidget {
 }
 
 double _calcularValorProducao(Map<String, dynamic> p) {
-  final tipo = _s(p['tipo_pagamento']);
-  final unitario = _d(p, 'valor_unitario');
-  switch (tipo) {
-    case 'Diária':
-    case 'Tarefa':
-      return unitario;
-    case 'Árvore':
-      return _i(p, 'arvores') * unitario;
-    case 'Metro cúbico':
-    default:
-      return _d(p, 'volume_m3') * unitario;
+  // Usa o valor já calculado em producao_funcionarios quando disponível
+  final pfs = p['producao_funcionarios'];
+  if (pfs is List) {
+    return pfs.fold<double>(
+        0, (s, m) => s + (double.tryParse('${m['valor_total']}') ?? 0));
   }
+  return 0;
 }
 
 class _ProducaoDetails extends StatefulWidget {
@@ -369,16 +346,13 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
   }
 
   Future<void> _carregarIntegrantes() async {
-    final equipeId = widget.item['equipe_id']?.toString();
-    if (equipeId == null || equipeId.isEmpty) return;
+    final id = widget.item['id']?.toString();
+    if (id == null || id.isEmpty) return;
     try {
-      final membros = await Db.list('equipe_membros',
-          select: 'funcionario_id, funcionarios!funcionario_id(nome, forma_pagamento, valor_base)');
-      final filtrados = membros
-          .where((m) => '${m['equipe_id']}' == equipeId)
-          .cast<Map<String, dynamic>>()
-          .toList();
-      if (mounted) setState(() => _integrantes = filtrados);
+      final rows = await Db.list('producao_funcionarios',
+          select: '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, valor_diaria, valor_hora, valor_m3, valor_arvore, valor_producao_fixa)')
+          .then((l) => l.where((m) => '${m['producao_id']}' == id).cast<Map<String, dynamic>>().toList());
+      if (mounted) setState(() => _integrantes = rows);
     } catch (_) {}
   }
 
@@ -390,8 +364,8 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
     final funcNome = _ref(item, 'funcionario', 'nome');
     final talhaoCod = _ref(item, 'talhao', 'codigo');
     final isEquipe = item['equipe_id'] != null;
-    final volumeTotal = _d(item, 'volume_m3');
-    final arvoresTotal = _i(item, 'arvores');
+    final volumeTotal = _d(item, 'volume_total');
+    final arvoresTotal = _i(item, 'total_arvores');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -429,33 +403,27 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
         if (talhaoCod.isNotEmpty)
           _DetailRow(label: 'Talhão', value: talhaoCod),
         _DetailRow(label: 'Data', value: _s(item['data'])),
-        _DetailRow(label: 'Tipo de pagamento', value: _s(item['tipo_pagamento'])),
-        _DetailRow(label: 'Valor unitário', value: 'R\$ ${_d(item, 'valor_unitario').toStringAsFixed(2)}'),
+        _DetailRow(label: 'Tipo de produção', value: _s(item['tipo_producao'])),
         if (_s(item['observacoes']).isNotEmpty)
           _DetailRow(label: 'Observações', value: _s(item['observacoes'])),
         const SizedBox(height: 24),
         if (isEquipe) ...[
-          Text('DIVISÃO POR INTEGRANTE',
+          Text('PARTICIPANTES E REMUNERAÇÃO',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   fontWeight: FontWeight.w800,
                   color: BrandColors.forest)),
           const SizedBox(height: 12),
           if (_integrantes.isEmpty)
-            const Text('Nenhum integrante cadastrado nesta equipe.')
+            const Text('Nenhum participante registrado nesta produção.')
           else
             ..._integrantes.map((m) {
-              final func = m['funcionarios'] is Map
-                  ? m['funcionarios'] as Map
+              final func = m['funcionario'] is Map
+                  ? m['funcionario'] as Map
                   : const <String, dynamic>{};
               final nome = _s(func['nome']);
-              final qtd = _integrantes.length;
-              final volumeInd = qtd > 0 ? volumeTotal / qtd : 0;
-              final arvoresInd = qtd > 0 ? arvoresTotal ~/ qtd : 0;
-              final valorInd = _calcularValorProducao({
-                ...item,
-                'volume_m3': volumeInd,
-                'arvores': arvoresInd,
-              });
+              final forma = _s(m['forma_remuneracao']);
+              final valorInd = _d(m, 'valor_total');
+              final qtd = _d(m, 'quantidade_calculo');
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: Padding(
@@ -468,7 +436,7 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
                           children: [
                             Text(nome,
                                 style: const TextStyle(fontWeight: FontWeight.w700)),
-                            Text('${volumeInd.toStringAsFixed(1)} m³ • $arvoresInd árvores',
+                            Text('$forma • ${qtd.toStringAsFixed(0)} un',
                                 style: const TextStyle(color: Colors.grey, fontSize: 12)),
                           ],
                         ),
@@ -496,7 +464,9 @@ class _EquipeDetails extends StatelessWidget {
   Widget build(BuildContext context) {
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
-        Db.list('producao', select: '*, funcionario:funcionarios!funcionario_id(nome), talhao:talhoes!talhao_id(codigo)')
+        Db.list('producao',
+            select:
+                '*, funcionario:funcionarios!funcionario_id(nome), talhao:talhoes!talhao_id(codigo), producao_funcionarios(*)')
             .then((l) => l.where((m) => '${m['equipe_id']}' == equipeId).toList()),
       ]),
       builder: (context, snap) {
@@ -507,7 +477,7 @@ class _EquipeDetails extends StatelessWidget {
           ));
         }
         final producao = ((snap.data?[0] as List?) ?? []).cast<Map<String, dynamic>>();
-        final volumeTotal = producao.fold<double>(0, (s, m) => s + _d(m, 'volume_m3'));
+        final volumeTotal = producao.fold<double>(0, (s, m) => s + _d(m, 'volume_total'));
         final valorTotal = producao.fold<double>(0, (s, m) => s + _calcularValorProducao(m));
 
         return Column(
@@ -545,7 +515,7 @@ class _EquipeDetails extends StatelessWidget {
               const SizedBox(height: 8),
               ...producao.take(5).map((p) => _DetailRow(
                   label: '${_ref(p, 'funcionario', 'nome')}',
-                  value: '${_s(p['data'])} • ${_d(p, 'volume_m3').toStringAsFixed(1)} m³ • R\$ ${_calcularValorProducao(p).toStringAsFixed(2)}')),
+                  value: '${_s(p['data'])} • ${_d(p, 'volume_total').toStringAsFixed(1)} m³ • R\$ ${_calcularValorProducao(p).toStringAsFixed(2)}')),
             ],
           ],
         );

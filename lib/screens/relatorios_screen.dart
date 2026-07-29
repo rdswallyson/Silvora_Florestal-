@@ -22,7 +22,9 @@ class _RelatoriosScreenState extends State<RelatoriosScreen> {
   Future<RelatorioData> _load() async {
     try {
       final results = await Future.wait([
-        Db.list('producao', select: '*'),
+        Db.list('producao',
+            select:
+                '*, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome), producao_funcionarios(*, funcionario:funcionarios!funcionario_id(nome))'),
         Db.list('transporte', select: '*'),
         Db.list('lancamentos', select: '*'),
         Db.list('equipamentos', select: '*'),
@@ -108,9 +110,20 @@ class _RelatoriosScreenState extends State<RelatoriosScreen> {
     }
 
     final volume = producoes.fold<double>(
-        0, (s, m) => s + (double.tryParse('${m['volume_m3']}') ?? 0));
+        0, (s, m) => s + (double.tryParse('${m['volume_total']}') ?? 0));
     final arvores = producoes.fold<int>(
-        0, (s, m) => s + (int.tryParse('${m['arvores']}') ?? 0));
+        0, (s, m) => s + (int.tryParse('${m['total_arvores']}') ?? 0));
+    final custoMaoObra = producoes.fold<double>(0, (s, m) {
+      final pfs = m['producao_funcionarios'];
+      if (pfs is List) {
+        return s +
+            pfs.fold<double>(
+                0,
+                (s2, p) =>
+                    s2 + (double.tryParse('${p['valor_total']}') ?? 0));
+      }
+      return s;
+    });
     final receitas = lancamentos
         .where((m) => '${m['tipo']}' == 'Receita')
         .fold<double>(0, (s, m) => s + (double.tryParse('${m['valor']}') ?? 0));
@@ -165,6 +178,8 @@ class _RelatoriosScreenState extends State<RelatoriosScreen> {
                 '${volume.toStringAsFixed(1)} m³', BrandColors.forest),
             _relTile(Icons.park, 'Árvores cortadas', '$arvores',
                 BrandColors.success),
+            _relTile(Icons.people, 'Custo mão de obra',
+                'R\$ ${custoMaoObra.toStringAsFixed(2)}', BrandColors.info),
             _relTile(Icons.attach_money, 'Receitas',
                 'R\$ ${receitas.toStringAsFixed(2)}', BrandColors.success),
             _relTile(Icons.money_off, 'Despesas',

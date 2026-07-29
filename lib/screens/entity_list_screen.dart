@@ -6,6 +6,8 @@ import '../services/db_service.dart';
 import '../theme/app_theme.dart';
 import 'entity_detail_screen.dart';
 
+import 'producao_form_screen.dart';
+
 /// Tela genérica de módulo: lista os registros da tabela e permite
 /// cadastrar, editar e excluir — tudo salvo no Supabase.
 class EntityListScreen extends StatefulWidget {
@@ -23,6 +25,8 @@ class _EntityListScreenState extends State<EntityListScreen> {
   String? _filtroFuncionarioId;
   List<Map<String, dynamic>> _equipesOptions = [];
   List<Map<String, dynamic>> _funcionariosOptions = [];
+  bool _modoIndividualProducao = false;
+  Future<List<Map<String, dynamic>>>? _futureIndividual;
 
   EntityDef get def => widget.def;
 
@@ -47,10 +51,35 @@ class _EntityListScreenState extends State<EntityListScreen> {
     } catch (_) {}
   }
 
-  void _reload() =>
-      setState(() => _future = Db.list(def.table, select: def.selectQuery));
+  void _reload() {
+    setState(() {
+      _future = Db.list(def.table, select: def.selectQuery);
+      if (def.table == 'producao') {
+        _futureIndividual = Db.list('producao_funcionarios',
+            select:
+                '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao), producao:producao!producao_id(data, talhao:talhao_id(codigo), equipe:equipe_id(nome))');
+      }
+    });
+  }
 
   Future<void> _openForm([Map<String, dynamic>? existing]) async {
+    if (def.table == 'producao' && existing == null) {
+      final saved = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => const ProducaoFormScreen()),
+      );
+      if (saved == true && mounted) {
+        _reload();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Produção cadastrada com sucesso.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -133,6 +162,10 @@ class _EntityListScreenState extends State<EntityListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (def.table == 'producao' && _modoIndividualProducao) {
+      return _buildProducaoIndividualView();
+    }
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton.extended(
@@ -180,19 +213,31 @@ class _EntityListScreenState extends State<EntityListScreen> {
                   ),
                 ),
               ),
-              if (def.table == 'producao' &&
-                  (_equipesOptions.isNotEmpty ||
-                      _funcionariosOptions.isNotEmpty))
+              if (def.table == 'producao')
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                  child: _FilterBar(
-                    equipes: _equipesOptions,
-                    funcionarios: _funcionariosOptions,
-                    equipeId: _filtroEquipeId,
-                    funcionarioId: _filtroFuncionarioId,
-                    onEquipeChanged: (v) => setState(() => _filtroEquipeId = v),
-                    onFuncionarioChanged: (v) =>
-                        setState(() => _filtroFuncionarioId = v),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _FilterBar(
+                          equipes: _equipesOptions,
+                          funcionarios: _funcionariosOptions,
+                          equipeId: _filtroEquipeId,
+                          funcionarioId: _filtroFuncionarioId,
+                          onEquipeChanged: (v) =>
+                              setState(() => _filtroEquipeId = v),
+                          onFuncionarioChanged: (v) =>
+                              setState(() => _filtroFuncionarioId = v),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.outlined(
+                        onPressed: () => setState(() =>
+                            _modoIndividualProducao = !_modoIndividualProducao),
+                        icon: const Icon(Icons.person_outline),
+                        tooltip: 'Ver por funcionário',
+                      ),
+                    ],
                   ),
                 ),
               if (def.headerOf != null && items.isNotEmpty)
@@ -224,6 +269,89 @@ class _EntityListScreenState extends State<EntityListScreen> {
       ),
     );
   }
+
+  Widget _buildProducaoIndividualView() {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => setState(() => _modoIndividualProducao = false),
+        icon: const Icon(Icons.view_agenda_outlined),
+        label: const Text('Agrupada'),
+      ),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _futureIndividual,
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return _ErrorState(onRetry: _reload, error: '${snap.error}');
+          }
+          final all = snap.data ?? const [];
+          final items = all.where((m) {
+            if (_query.isNotEmpty && !def.matches(m, _query)) return false;
+            return true;
+          }).toList();
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: TextField(
+                  onChanged: (v) => setState(() => _query = v),
+                  decoration: const InputDecoration(
+                    hintText: 'Buscar participante...',
+                    prefixIcon: Icon(Icons.search),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: items.isEmpty
+                    ? const Center(child: Text('Nenhum participante encontrado.'))
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                        itemCount: items.length,
+                        itemBuilder: (context, i) {
+                          final m = items[i];
+                          final f = m['funcionario'] as Map? ?? {};
+                          final p = m['producao'] as Map? ?? {};
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: ListTile(
+                              leading: _iconAvatar(
+                                  Icons.person, BrandColors.forest),
+                              title: Text(f['nome']?.toString() ?? ''),
+                              subtitle: Text([
+                                f['forma_remuneracao']?.toString() ?? '',
+                                if ((m['valor_total'] ?? 0) > 0)
+                                  'R\$ ${(m['valor_total'] as num).toStringAsFixed(2)}',
+                                p['data']?.toString() ?? '',
+                              ].where((e) => e.isNotEmpty).join(' • ')),
+                              trailing: Text(
+                                '${(m['quantidade_calculo'] as num?)?.toStringAsFixed(0) ?? '0'} un',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+Widget _iconAvatar(IconData icon, Color color) {
+  return CircleAvatar(
+    radius: 24,
+    backgroundColor: color.withValues(alpha: 0.12),
+    child: Icon(icon, color: color),
+  );
 }
 
 class _EntityTile extends StatelessWidget {
@@ -559,10 +687,8 @@ class _EntityFormState extends State<_EntityForm> {
           childIds: _multiValues[f.key]!.toList(),
         );
       }
-      // Produção: quando vinculada a uma equipe, replica para cada integrante
-      if (def.table == 'producao' && _refValues['equipe_id'] != null) {
-        await _replicarProducaoParaEquipe(id, data);
-      }
+      // Produção: obsoleto — nova tela ProducaoFormScreen trata o cálculo individual.
+      // Mantido apenas para edição de registros antigos, sem replicação.
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
@@ -576,87 +702,8 @@ class _EntityFormState extends State<_EntityForm> {
 
   Future<void> _replicarProducaoParaEquipe(
       String producaoId, Map<String, dynamic> base) async {
-    final equipeId = _refValues['equipe_id'];
-    if (equipeId == null || equipeId.isEmpty) return;
-    try {
-      final membros = await Db.list('equipe_membros',
-          select: 'funcionario_id')
-          .then((l) => l
-              .where((m) => '${m['equipe_id']}' == equipeId)
-              .map((m) => '${m['funcionario_id']}')
-              .where((id) => id.isNotEmpty && id != 'null')
-              .toList());
-      if (membros.isEmpty) return;
-      final volumeTotal = double.tryParse('${base['volume_m3']}') ?? 0;
-      final arvoresTotal = int.tryParse('${base['arvores']}') ?? 0;
-      final valorUnitario = double.tryParse('${base['valor_unitario']}') ?? 0;
-      final tipoPagamento = base['tipo_pagamento']?.toString() ?? 'Metro cúbico';
-      final volumeIndividual = volumeTotal / membros.length;
-      final arvoresIndividual = arvoresTotal ~/ membros.length;
-      final rows = membros.map((funcId) {
-        final row = Map<String, dynamic>.from(base);
-        row.remove('id');
-        row['equipe_id'] = equipeId;
-        row['funcionario_id'] = funcId;
-        row['volume_m3'] = volumeIndividual;
-        row['arvores'] = arvoresIndividual;
-        row['valor_unitario'] = valorUnitario;
-        row['tipo_pagamento'] = tipoPagamento;
-        row['producao_origem_id'] = producaoId;
-        return row;
-      }).toList();
-      await Db.insertMany('producao', rows);
-      // Gera despesa de pagamento para cada integrante
-      for (final row in rows) {
-        await _gerarLancamentoPagamentoProducao(row);
-      }
-    } catch (_) {
-      // Não quebra o fluxo principal; apenas não replica.
-    }
-  }
-
-  Future<void> _gerarLancamentoPagamentoProducao(
-      Map<String, dynamic> producao) async {
-    final tipo = producao['tipo_pagamento']?.toString() ?? 'Metro cúbico';
-    final unitario = double.tryParse('${producao['valor_unitario']}') ?? 0;
-    final volume = double.tryParse('${producao['volume_m3']}') ?? 0;
-    final arvores = int.tryParse('${producao['arvores']}') ?? 0;
-    double valor = 0;
-    switch (tipo) {
-      case 'Diária':
-        valor = unitario;
-        break;
-      case 'Metro cúbico':
-        valor = volume * unitario;
-        break;
-      case 'Árvore':
-        valor = arvores * unitario;
-        break;
-      case 'Tarefa':
-        valor = unitario;
-        break;
-      default:
-        valor = volume * unitario;
-    }
-    if (valor <= 0) return;
-    final funcId = producao['funcionario_id']?.toString();
-    String descricao = 'Pagamento de produção';
-    if (funcId != null && funcId.isNotEmpty) {
-      final func = _optionsByTable['funcionarios']?.firstWhere(
-        (m) => '${m['id']}' == funcId,
-        orElse: () => const <String, dynamic>{},
-      );
-      if (func != null && func.isNotEmpty) {
-        descricao = 'Pagamento: ${func['nome']} (${func['forma_pagamento'] ?? tipo})';
-      }
-    }
-    await Db.insert('lancamentos', {
-      'tipo': 'Despesa',
-      'descricao': descricao,
-      'categoria': 'Salário',
-      'valor': valor,
-      'data': producao['data'],
-    });
+    // Método obsoleto: a nova tela ProducaoFormScreen já cria os registros individuais.
+    return;
   }
 
   @override
@@ -858,42 +905,23 @@ class _EntityFormState extends State<_EntityForm> {
       onChanged: (v) {
         setState(() => _refValues[f.key] = v);
         if (def.table == 'producao' && f.key == 'funcionario_id' && v != null) {
-          _aplicarFormaPagamentoDoFuncionario(v);
+          // Obsoleto: a nova tela ProducaoFormScreen trata o cálculo.
         }
         if (def.table == 'producao' && f.key == 'equipe_id' && v != null) {
-          _aplicarFormaPagamentoDaEquipe(v);
+          // Obsoleto: a nova tela ProducaoFormScreen trata o cálculo.
         }
       },
     );
   }
 
   Future<void> _aplicarFormaPagamentoDoFuncionario(String funcId) async {
-    final opts = _optionsByTable['funcionarios'] ?? [];
-    final func = opts.firstWhere(
-      (m) => '${m['id']}' == funcId,
-      orElse: () => const <String, dynamic>{},
-    );
-    if (func.isEmpty) return;
-    final forma = func['forma_pagamento']?.toString();
-    final base = func['valor_base']?.toString();
-    if (forma != null && forma.isNotEmpty) {
-      setState(() => _selects['tipo_pagamento'] = forma);
-    }
-    if (base != null && base.isNotEmpty) {
-      _ctrls['valor_unitario']?.text = base.replaceAll('.', ',');
-    }
+    // Obsoleto: a nova tela ProducaoFormScreen já busca a forma de remuneração.
+    return;
   }
 
   Future<void> _aplicarFormaPagamentoDaEquipe(String equipeId) async {
-    final opts = _optionsByTable['equipes'] ?? [];
-    final equipe = opts.firstWhere(
-      (m) => '${m['id']}' == equipeId,
-      orElse: () => const <String, dynamic>{},
-    );
-    if (equipe.isEmpty) return;
-    final liderId = equipe['lider_id']?.toString();
-    if (liderId == null || liderId.isEmpty) return;
-    _aplicarFormaPagamentoDoFuncionario(liderId);
+    // Obsoleto: a nova tela ProducaoFormScreen já busca os integrantes ativos.
+    return;
   }
 
   Widget _buildMulti(FieldDef f) {

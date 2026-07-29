@@ -41,7 +41,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final results = await Future.wait([
         Db.list('producao',
             select:
-                '*, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo)'),
+                '*, funcionario:funcionarios!funcionario_id(nome), equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), producao_funcionarios(*)'),
         Db.list('equipes', select: '*'),
         Db.list('veiculos', select: '*'),
         Db.list('equipamentos', select: '*'),
@@ -68,6 +68,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double _sum(List<Map> list, String key) => list.fold<double>(
       0, (s, m) => s + (double.tryParse('${m[key]}') ?? 0));
 
+  double _sumInt(List<Map> list, String key) => list.fold<double>(
+      0, (s, m) => s + (int.tryParse('${m[key]}') ?? 0));
+
   String _todayStr() => DateTime.now().toIso8601String().split('T').first;
 
   String _fmt(double v) {
@@ -80,7 +83,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     for (final m in list) {
       final d = '${m['data']}'.trim();
       if (d.isEmpty || d == 'null') continue;
-      map[d] = (map[d] ?? 0) + (double.tryParse('${m['volume_m3']}') ?? 0);
+      map[d] = (map[d] ?? 0) + (double.tryParse('${m['volume_total']}') ?? 0);
     }
     return map;
   }
@@ -144,19 +147,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       builder: (context, snap) {
         final data = snap.data ?? DashboardData.fallback();
 
-        final volumeTotal = _sum(data.producoes, 'volume_m3');
+        final volumeTotal = _sum(data.producoes, 'volume_total');
         final volumeHoje = _sum(
           data.producoes
               .where((m) => '${m['data']}'.startsWith(_todayStr()))
               .toList(),
-          'volume_m3',
+          'volume_total',
         );
         final producoesMes = data.producoes.where((m) {
           final d = '${m['data']}';
           return d.compareTo(_monthStart()) >= 0 &&
               d.compareTo(_monthEnd()) <= 0;
         }).toList();
-        final volumeMes = _sum(producoesMes, 'volume_m3');
+        final volumeMes = _sum(producoesMes, 'volume_total');
+        final arvoresMes = _sumInt(producoesMes, 'total_arvores');
 
         final receitas = data.lancamentos
             .where((m) => '${m['tipo']}' == 'Receita')
@@ -527,7 +531,7 @@ class _ChartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = data.fold<double>(0, (s, m) => s + (double.tryParse('${m['volume_m3']}') ?? 0));
+    final total = data.fold<double>(0, (s, m) => s + (double.tryParse('${m['volume_total']}') ?? 0));
     final media = data.isEmpty ? 0 : total / 7;
     return Card(
       child: Padding(
@@ -913,7 +917,7 @@ class _RecentProduction extends StatelessWidget {
                           '${_ref(p, 'equipe', 'nome')} • ${_ref(p, 'talhao', 'codigo')}',
                       subtitle: '${p['data'] ?? ''}',
                       trailing:
-                          '${(double.tryParse('${p['volume_m3']}') ?? 0).toStringAsFixed(1)} m³',
+                          '${(double.tryParse('${p['volume_total']}') ?? 0).toStringAsFixed(1)} m³',
                       onTap: () => context.go('/producao'),
                     ),
                   )),

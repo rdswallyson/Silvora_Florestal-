@@ -65,17 +65,20 @@ class _IaScreenState extends State<IaScreen> {
     try {
       if (l.contains('produç') || l.contains('hoje') || l.contains('m³')) {
         final hoje = DateTime.now().toIso8601String().split('T').first;
-        final producoes = await Db.list('producao', select: '*');
+        final producoes = await Db.list('producao',
+            select: '*, producao_funcionarios(valor_total)');
         final hojeList = producoes.where((m) => '${m['data']}'.startsWith(hoje));
         final volume = hojeList.fold<double>(
-            0, (s, m) => s + (double.tryParse('${m['volume_m3']}') ?? 0));
+            0, (s, m) => s + (double.tryParse('${m['volume_total']}') ?? 0));
         final arvores = hojeList.fold<int>(
-            0, (s, m) => s + (int.tryParse('${m['arvores']}') ?? 0));
+            0, (s, m) => s + (int.tryParse('${m['total_arvores']}') ?? 0));
         if (producoes.isEmpty) return 'Ainda não há registros de produção.';
         return 'Hoje foram produzidos ${volume.toStringAsFixed(1)} m³ e ${arvores.toStringAsFixed(0)} árvores em ${hojeList.length} registros.';
       }
       if (l.contains('custo') || l.contains('metro')) {
-        final producoes = await Db.list('producao', select: '*');
+        final producoes = await Db.list('producao',
+            select:
+                '*, equipe:equipes!equipe_id(nome), producao_funcionarios(valor_total)');
         if (producoes.isEmpty) return 'Não há produção registrada para calcular o custo.';
         final map = <String, List<Map<String, dynamic>>>{};
         for (final p in producoes) {
@@ -87,15 +90,15 @@ class _IaScreenState extends State<IaScreen> {
         for (final e in map.entries) {
           if (e.key.isEmpty || e.key == 'null') continue;
           final volume = e.value.fold<double>(0,
-              (s, m) => s + (double.tryParse('${m['volume_m3']}') ?? 0));
+              (s, m) => s + (double.tryParse('${m['volume_total']}') ?? 0));
           final despesas = e.value.fold<double>(0, (s, m) {
-            final tipo = '${m['tipo_pagamento']}';
-            final unit = double.tryParse('${m['valor_unitario']}') ?? 0;
-            final v = double.tryParse('${m['volume_m3']}') ?? 0;
-            final a = int.tryParse('${m['arvores']}') ?? 0;
-            if (tipo == 'Diária' || tipo == 'Tarefa') return s + unit;
-            if (tipo == 'Árvore') return s + a * unit;
-            return s + v * unit;
+            final pfs = m['producao_funcionarios'];
+            if (pfs is List) {
+              return s +
+                  pfs.fold<double>(0,
+                      (s2, p) => s2 + (double.tryParse('${p['valor_total']}') ?? 0));
+            }
+            return s;
           });
           final custo = volume > 0 ? despesas / volume : 0.0;
           if (custo > maiorCusto) {

@@ -3,7 +3,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// CRUD genérico sobre o Supabase. Cada tabela usa RLS por `owner_id`,
 /// então o filtro por usuário é feito automaticamente pelo banco.
 class Db {
+  static final Db instance = Db._internal();
+  Db._internal();
+
   static SupabaseClient get _c => Supabase.instance.client;
+
+  SupabaseClient get client => _c;
 
   /// Lista os registros de [table] do usuário logado (mais recentes primeiro).
   /// [select] permite trazer dados relacionados (embedding do PostgREST).
@@ -34,10 +39,11 @@ class Db {
   }
 
   /// Insere um novo registro. Remove campos nulos para evitar erro de coluna inexistente.
-  static Future<void> insert(String table, Map<String, dynamic> data) async {
+  static Future<Map<String, dynamic>> insert(String table, Map<String, dynamic> data) async {
     final clean = Map<String, dynamic>.from(data)
       ..removeWhere((k, v) => v == null);
-    await _c.from(table).insert(clean);
+    final res = await _c.from(table).insert(clean).select().single();
+    return res as Map<String, dynamic>;
   }
 
   /// Insere e devolve o id do registro criado.

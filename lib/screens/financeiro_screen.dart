@@ -24,7 +24,9 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     try {
       final results = await Future.wait([
         Db.list('lancamentos', select: '*'),
-        Db.list('producao', select: '*'),
+        Db.list('producao',
+            select:
+                '*, producao_funcionarios(*, funcionario:funcionarios!funcionario_id(nome))'),
         Db.list('transporte', select: '*'),
         Db.list('equipes', select: '*'),
       ]);
@@ -83,14 +85,13 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     });
   }
 
-  double _calcValor(Map<String, dynamic> m) {
-    final tipo = '${m['tipo_pagamento']}';
-    final unitario = double.tryParse('${m['valor_unitario']}') ?? 0;
-    final volume = double.tryParse('${m['volume_m3']}') ?? 0;
-    final arvores = int.tryParse('${m['arvores']}') ?? 0;
-    if (tipo == 'Diária' || tipo == 'Tarefa') return unitario;
-    if (tipo == 'Árvore') return arvores * unitario;
-    return volume * unitario;
+  double _calcValor(Map<String, dynamic> p) {
+    final pfs = p['producao_funcionarios'];
+    if (pfs is List) {
+      return pfs.fold<double>(
+          0, (s, m) => s + (double.tryParse('${m['valor_total']}') ?? 0));
+    }
+    return 0;
   }
 
   @override
@@ -123,7 +124,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
           if (eId.isEmpty || eId == 'null') continue;
           custoEquipes[eId] = (custoEquipes[eId] ?? 0) + _calcValor(p);
           volumeEquipes[eId] = (volumeEquipes[eId] ?? 0) +
-              (double.tryParse('${p['volume_m3']}') ?? 0);
+              (double.tryParse('${p['volume_total']}') ?? 0);
         }
         final custoRows = custoEquipes.entries.map((e) {
           final equipe = data.equipes.firstWhere(

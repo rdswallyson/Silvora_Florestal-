@@ -49,12 +49,17 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
     setState(() => _loading = true);
     try {
       final funcionarios = await Db.list('funcionarios',
-          select: 'id,nome,forma_remuneracao,valor_diaria,valor_hora,valor_m3,valor_arvore,valor_producao_fixa,situacao',
-          orderBy: 'nome');
-      final equipes = await Db.list('equipes',
-          select: 'id,nome,integrantes', orderBy: 'nome');
-      final talhoes = await Db.list('talhoes',
-          select: 'id,codigo', orderBy: 'codigo');
+          select: 'id,nome,forma_remuneracao,valor_diaria,valor_hora,valor_m3,valor_arvore,valor_producao_fixa,situacao');
+      final equipes = await Db.list('equipes', select: 'id,nome,integrantes');
+      final talhoes = await Db.list('talhoes', select: 'id,codigo');
+
+      funcionarios.sort((a, b) =>
+          (a['nome'] ?? '').toString().compareTo((b['nome'] ?? '').toString()));
+      equipes.sort((a, b) =>
+          (a['nome'] ?? '').toString().compareTo((b['nome'] ?? '').toString()));
+      talhoes.sort((a, b) => (a['codigo'] ?? '')
+          .toString()
+          .compareTo((b['codigo'] ?? '').toString()));
 
       if (mounted) {
         setState(() {

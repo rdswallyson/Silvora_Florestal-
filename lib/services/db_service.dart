@@ -15,11 +15,13 @@ class Db {
   static Future<List<Map<String, dynamic>>> list(
     String table, {
     String select = '*',
+    String orderBy = 'created_at',
+    bool ascending = false,
   }) async {
     final res = await _c
         .from(table)
         .select(select)
-        .order('created_at', ascending: false);
+        .order(orderBy, ascending: ascending);
     return (res as List).cast<Map<String, dynamic>>();
   }
 

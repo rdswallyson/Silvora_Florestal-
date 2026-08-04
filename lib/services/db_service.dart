@@ -6,7 +6,13 @@ class Db {
   static final Db instance = Db._internal();
   Db._internal();
 
-  static SupabaseClient get _c => Supabase.instance.client;
+  static SupabaseClient get _c {
+    final c = Supabase.instance.clientOrNull;
+    if (c == null) {
+      throw Exception('Cliente Supabase não inicializado.');
+    }
+    return c;
+  }
 
   SupabaseClient get client => _c;
 

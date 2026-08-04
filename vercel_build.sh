@@ -18,8 +18,19 @@ fi
 export PATH="$HOME/flutter/bin:$HOME/flutter/bin/cache/dart-sdk/bin:$PATH"
 
 flutter config --no-analytics
-flutter doctor
 flutter config --enable-web
+
+# Diagnóstico inicial (não expõe segredos completos).
+echo "== DIAGNÓSTICO DO AMBIENTE =="
+echo "Shell: $SHELL"
+echo "Bash versão: $BASH_VERSION"
+echo "Flutter: $(which flutter)"
+echo "SUPABASE_URL definida: $([ -n "$SUPABASE_URL" ] && echo sim || echo não)"
+echo "SUPABASE_PUBLISHABLE_KEY definida: $([ -n "$SUPABASE_PUBLISHABLE_KEY" ] && echo sim || echo não)"
+echo "FLUTTER_ENV: ${FLUTTER_ENV:-<ausente>}"
+echo "=============================="
+
+flutter doctor
 flutter pub get
 
 # Coleta variáveis de ambiente do Vercel (ou deixa vazio se ausente).
@@ -46,6 +57,7 @@ fi
 # SupabaseConfig.isDev seja false e o modo mock nunca seja ativado.
 
 echo "Iniciando build Flutter Web para Vercel..."
+echo "Argumentos: ${BUILD_ARGS[*]}"
 flutter build "${BUILD_ARGS[@]}"
 
 # Garante que o Vercel sirva a pasta correta

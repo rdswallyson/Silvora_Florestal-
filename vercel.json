@@ -1,9 +1,10 @@
 {
   "version": 2,
   "name": "silvora-florestal",
-  "buildCommand": "npm run vercel-build",
+  "buildCommand": "bash vercel_build.sh",
   "outputDirectory": "build/web",
   "framework": null,
+  "installCommand": "npm install",
   "routes": [
     {
       "src": "/flutter_bootstrap.js",

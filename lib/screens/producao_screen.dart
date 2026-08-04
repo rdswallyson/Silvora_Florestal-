@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/supabase_config.dart';
 import '../data/mock_data.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -8,6 +9,32 @@ class ProducaoScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.construction, size: 48, color: BrandColors.alert),
+              const SizedBox(height: 16),
+              Text(
+                'Produção em desenvolvimento',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Esta tela usa dados de demonstração e está disponível apenas no modo de desenvolvimento.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final data = MockData.producoes;
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),

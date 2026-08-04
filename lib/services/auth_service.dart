@@ -6,7 +6,13 @@ class AuthService {
   static final AuthService instance = AuthService._();
   AuthService._();
 
-  SupabaseClient get _client => Supabase.instance.client;
+  SupabaseClient get _client {
+    final c = Supabase.instance.clientOrNull;
+    if (c == null) {
+      throw Exception('Cliente Supabase não inicializado.');
+    }
+    return c;
+  }
 
   User? get currentUser => _client.auth.currentUser;
   bool get isLoggedIn => currentUser != null;

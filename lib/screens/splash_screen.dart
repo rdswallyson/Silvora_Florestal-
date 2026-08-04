@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../config/supabase_config.dart';
-import '../services/auth_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -27,8 +26,9 @@ class _SplashScreenState extends State<SplashScreen>
         .animate(CurvedAnimation(parent: _c, curve: Curves.easeOutBack));
     Future.delayed(const Duration(milliseconds: 2200), () {
       if (!mounted) return;
-      // Com Supabase: vai direto ao dashboard se já houver sessão.
-      if (SupabaseConfig.isConfigured && AuthService.instance.isLoggedIn) {
+      final client = Supabase.instance.clientOrNull;
+      final loggedIn = client?.auth.currentUser != null;
+      if (loggedIn) {
         context.go('/dashboard');
       } else {
         context.go('/login');

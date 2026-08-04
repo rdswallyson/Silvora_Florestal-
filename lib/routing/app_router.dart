@@ -14,20 +14,20 @@ import '../screens/configuracoes_screen.dart';
 import '../screens/entity_list_screen.dart';
 import '../data/entities.dart';
 import '../widgets/app_shell.dart';
-import '../config/supabase_config.dart';
 import '../services/auth_service.dart';
 
 /// Adapta o stream de auth do Supabase para um Listenable que o go_router
 /// escuta para reavaliar as rotas quando o usuário entra ou sai.
 class _AuthRefresh extends ChangeNotifier {
   _AuthRefresh() {
-    if (SupabaseConfig.isConfigured) {
-      _sub = AuthService.instance.onAuthStateChange.listen((_) {
+    final client = Supabase.instance.clientOrNull;
+    if (client != null) {
+      _sub = client.auth.onAuthStateChange.listen((_) {
         notifyListeners();
       });
     }
   }
-  StreamSubscription<dynamic>? _sub;
+  StreamSubscription<AuthState>? _sub;
   @override
   void dispose() {
     _sub?.cancel();
@@ -48,8 +48,6 @@ final appRouter = GoRouter(
   initialLocation: '/',
   refreshListenable: _AuthRefresh(),
   redirect: (context, state) {
-    // Sem Supabase configurado: sem guarda (modo demonstração).
-    if (!SupabaseConfig.isConfigured) return null;
     final loggedIn = AuthService.instance.isLoggedIn;
     final loc = state.uri.path;
     final onSplash = loc == '/';

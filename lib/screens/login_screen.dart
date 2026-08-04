@@ -34,9 +34,13 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _entrar() async {
-    // Sem credenciais configuradas: fluxo de demonstração (mock).
-    if (!SupabaseConfig.isConfigured) {
+    // Modo mock só é permitido em desenvolvimento explícito (FLUTTER_ENV=dev).
+    if (SupabaseConfig.isMockMode) {
       context.go('/dashboard');
+      return;
+    }
+    if (!SupabaseConfig.isConfigured) {
+      _erro('Servidor não configurado. Contate o administrador.');
       return;
     }
     if (_emailCtrl.text.trim().isEmpty || _senhaCtrl.text.isEmpty) {
@@ -55,8 +59,12 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _cadastrar() async {
+    if (SupabaseConfig.isMockMode) {
+      showEmBreve(context, 'Cadastro indisponível no modo demonstração.');
+      return;
+    }
     if (!SupabaseConfig.isConfigured) {
-      showEmBreve(context, 'Cadastro (configure o Supabase)');
+      _erro('Servidor não configurado. Contate o administrador.');
       return;
     }
     final nomeCtrl = TextEditingController();
@@ -110,8 +118,12 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _esqueci() async {
+    if (SupabaseConfig.isMockMode) {
+      _erro('Recuperação de senha indisponível no modo demonstração.');
+      return;
+    }
     if (!SupabaseConfig.isConfigured) {
-      showEmBreve(context, 'Recuperação de senha (configure o Supabase)');
+      _erro('Servidor não configurado. Contate o administrador.');
       return;
     }
     if (_emailCtrl.text.trim().isEmpty) {
@@ -237,7 +249,7 @@ class _LoginScreenState extends State<LoginScreen>
         const SizedBox(height: 4),
         Text('Acesse sua conta para continuar',
             style: TextStyle(color: scheme.onSurface.withValues(alpha: 0.6))),
-        if (!SupabaseConfig.isConfigured) ...[
+        if (SupabaseConfig.isMockMode) ...[
           const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
@@ -252,7 +264,7 @@ class _LoginScreenState extends State<LoginScreen>
               Expanded(
                 child: Text(
                   'Modo demonstração: qualquer login entra. '
-                  'Configure o Supabase para login real.',
+                  'Use apenas em desenvolvimento.',
                   style: TextStyle(
                       fontSize: 12,
                       color: scheme.onSurface.withValues(alpha: 0.8)),

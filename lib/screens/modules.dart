@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/supabase_config.dart';
 import '../data/mock_data.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -35,6 +36,32 @@ class _ListScaffold extends StatelessWidget {
       ],
     );
   }
+}
+
+Widget _disabledInProduction(BuildContext context, String nome) {
+  return Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.construction, size: 48, color: BrandColors.alert),
+          const SizedBox(height: 16),
+          Text(
+            '$nome em desenvolvimento',
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Esta tela usa dados de demonstração e está disponível apenas no modo de desenvolvimento.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 Widget _tile({
@@ -82,6 +109,7 @@ class FuncionariosScreen extends StatelessWidget {
   const FuncionariosScreen({super.key});
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) return _disabledInProduction(context, 'Funcionários');
     final data = MockData.funcionarios;
     return _ListScaffold(
       searchHint: 'Buscar funcionário...',
@@ -112,6 +140,7 @@ class EquipesScreen extends StatelessWidget {
   const EquipesScreen({super.key});
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) return _disabledInProduction(context, 'Equipes');
     final data = MockData.equipes;
     return _ListScaffold(
       searchHint: 'Buscar equipe...',
@@ -138,6 +167,7 @@ class FazendasScreen extends StatelessWidget {
   const FazendasScreen({super.key});
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) return _disabledInProduction(context, 'Fazendas');
     final data = MockData.fazendas;
     return _ListScaffold(
       searchHint: 'Buscar fazenda...',
@@ -164,6 +194,7 @@ class TalhoesScreen extends StatelessWidget {
   const TalhoesScreen({super.key});
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) return _disabledInProduction(context, 'Talhões');
     final data = MockData.talhoes;
     return _ListScaffold(
       searchHint: 'Buscar talhão...',
@@ -200,6 +231,7 @@ class TransporteScreen extends StatelessWidget {
   const TransporteScreen({super.key});
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) return _disabledInProduction(context, 'Transporte');
     final data = MockData.transportes;
     return _ListScaffold(
       searchHint: 'Buscar viagem...',
@@ -228,6 +260,7 @@ class ClientesScreen extends StatelessWidget {
   const ClientesScreen({super.key});
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) return _disabledInProduction(context, 'Clientes');
     final data = MockData.clientes;
     return _ListScaffold(
       searchHint: 'Buscar cliente...',
@@ -257,6 +290,7 @@ class EquipamentosScreen extends StatelessWidget {
   const EquipamentosScreen({super.key});
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) return _disabledInProduction(context, 'Equipamentos');
     final data = MockData.equipamentos;
     return _ListScaffold(
       searchHint: 'Buscar equipamento...',
@@ -286,6 +320,7 @@ class EstoqueScreen extends StatelessWidget {
   const EstoqueScreen({super.key});
   @override
   Widget build(BuildContext context) {
+    if (!SupabaseConfig.isMockMode) return _disabledInProduction(context, 'Estoque');
     final data = MockData.estoque;
     return _ListScaffold(
       searchHint: 'Buscar item...',

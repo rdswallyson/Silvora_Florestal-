@@ -47,7 +47,8 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
   }
 
   Future<void> _loadProfile() async {
-    if (!SupabaseConfig.isConfigured) {
+    final client = Supabase.instance.clientOrNull;
+    if (client == null || !SupabaseConfig.isConfigured) {
       setState(() => _loading = false);
       return;
     }
@@ -57,7 +58,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
       return;
     }
     try {
-      final res = await Supabase.instance.client
+      final res = await client
           .from('profiles')
           .select()
           .eq('id', user.id)
@@ -83,7 +84,8 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
   }
 
   Future<void> _saveProfile() async {
-    if (!SupabaseConfig.isConfigured) {
+    final client = Supabase.instance.clientOrNull;
+    if (client == null || !SupabaseConfig.isConfigured) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Supabase não configurado.')),
@@ -102,7 +104,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
     }
     setState(() => _saving = true);
     try {
-      await Supabase.instance.client.from('profiles').upsert({
+      await client.from('profiles').upsert({
         'id': user.id,
         'full_name': _nomeCtrl.text.trim(),
         'empresa': _empresaCtrl.text.trim(),
@@ -248,8 +250,13 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
         const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: () async {
-            if (SupabaseConfig.isConfigured) {
-              await AuthService.instance.signOut();
+            if (SupabaseConfig.isConfigured &&
+                Supabase.instance.clientOrNull != null) {
+              try {
+                await AuthService.instance.signOut();
+              } catch (e) {
+                debugPrint('Erro ao sair: $e');
+              }
             }
             if (context.mounted) context.go('/login');
           },

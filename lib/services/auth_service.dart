@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'supabase_client_helper.dart';
 
 /// Serviço de autenticação usando Supabase (email/senha).
 class AuthService {
@@ -7,7 +8,7 @@ class AuthService {
   AuthService._();
 
   SupabaseClient get _client {
-    final c = Supabase.instance.clientOrNull;
+    final c = SupabaseClientHelper.currentClient;
     if (c == null) {
       throw Exception('Cliente Supabase não inicializado.');
     }

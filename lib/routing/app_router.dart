@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../screens/splash_screen.dart';
 import '../screens/login_screen.dart';
@@ -15,12 +16,13 @@ import '../screens/entity_list_screen.dart';
 import '../data/entities.dart';
 import '../widgets/app_shell.dart';
 import '../services/auth_service.dart';
+import '../services/supabase_client_helper.dart';
 
 /// Adapta o stream de auth do Supabase para um Listenable que o go_router
 /// escuta para reavaliar as rotas quando o usuário entra ou sai.
 class _AuthRefresh extends ChangeNotifier {
   _AuthRefresh() {
-    final client = Supabase.instance.clientOrNull;
+    final client = SupabaseClientHelper.currentClient;
     if (client != null) {
       _sub = client.auth.onAuthStateChange.listen((_) {
         notifyListeners();

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/supabase_client_helper.dart';
 import '../theme/app_theme.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -26,7 +26,7 @@ class _SplashScreenState extends State<SplashScreen>
         .animate(CurvedAnimation(parent: _c, curve: Curves.easeOutBack));
     Future.delayed(const Duration(milliseconds: 2200), () {
       if (!mounted) return;
-      final client = Supabase.instance.clientOrNull;
+      final client = SupabaseClientHelper.currentClient;
       final loggedIn = client?.auth.currentUser != null;
       if (loggedIn) {
         context.go('/dashboard');

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../services/auth_service.dart';
+import '../services/supabase_client_helper.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -47,7 +47,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
   }
 
   Future<void> _loadProfile() async {
-    final client = Supabase.instance.clientOrNull;
+    final client = SupabaseClientHelper.currentClient;
     if (client == null || !SupabaseConfig.isConfigured) {
       setState(() => _loading = false);
       return;
@@ -84,7 +84,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
   }
 
   Future<void> _saveProfile() async {
-    final client = Supabase.instance.clientOrNull;
+    final client = SupabaseClientHelper.currentClient;
     if (client == null || !SupabaseConfig.isConfigured) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -251,7 +251,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
         OutlinedButton.icon(
           onPressed: () async {
             if (SupabaseConfig.isConfigured &&
-                Supabase.instance.clientOrNull != null) {
+                SupabaseClientHelper.currentClient != null) {
               try {
                 await AuthService.instance.signOut();
               } catch (e) {

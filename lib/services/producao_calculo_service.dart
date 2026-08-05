@@ -87,21 +87,21 @@ class ProducaoCalculoService {
         );
       case FormaRemuneracao.hora:
         final unitario = _parseDouble(funcionario['valor_hora']);
-        final qtd = horas > 0 ? horas : 1;
+        final qtd = (horas > 0 ? horas : 1).toDouble();
         return CalculoRemuneracao(
           forma: forma,
           valorUnitario: unitario,
           quantidadeCalculo: qtd,
-          valorTotal: unitario * qtd,
+          valorTotal: (unitario * qtd).toDouble(),
         );
       case FormaRemuneracao.metroCubico:
         final unitario = _parseDouble(funcionario['valor_m3']);
-        final qtd = volume;
+        final qtd = volume.toDouble();
         return CalculoRemuneracao(
           forma: forma,
           valorUnitario: unitario,
           quantidadeCalculo: qtd,
-          valorTotal: unitario * qtd,
+          valorTotal: (unitario * qtd).toDouble(),
         );
       case FormaRemuneracao.arvore:
         final unitario = _parseDouble(funcionario['valor_arvore']);
@@ -110,7 +110,7 @@ class ProducaoCalculoService {
           forma: forma,
           valorUnitario: unitario,
           quantidadeCalculo: qtd,
-          valorTotal: unitario * qtd,
+          valorTotal: (unitario * qtd).toDouble(),
         );
       case FormaRemuneracao.producaoFixa:
         final unitario = _parseDouble(funcionario['valor_producao_fixa']);
@@ -136,10 +136,8 @@ class ProducaoCalculoService {
     required String observacoes,
     required List<Map<String, dynamic>> participantes,
   }) async {
-    final db = Db.instance;
-
     // 1. Cria produção principal
-    final producao = await db.insert('producao', {
+    final producao = await Db.insert('producao', {
       'tipo_producao': tipoProducao,
       'funcionario_id': funcionarioId,
       'equipe_id': equipeId,
@@ -167,7 +165,7 @@ class ProducaoCalculoService {
         horas: _parseDouble(p['horas'] ?? 1),
       );
 
-      await db.insert('producao_funcionarios', {
+      await Db.insert('producao_funcionarios', {
         'producao_id': producaoId,
         'funcionario_id': funcionario['id'].toString(),
         'participou': true,

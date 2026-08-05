@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'supabase_client_helper.dart';
 
 /// CRUD genérico sobre o Supabase. Cada tabela usa RLS por `owner_id`,
 /// então o filtro por usuário é feito automaticamente pelo banco.
@@ -7,7 +8,7 @@ class Db {
   Db._internal();
 
   static SupabaseClient get _c {
-    final c = Supabase.instance.clientOrNull;
+    final c = SupabaseClientHelper.currentClient;
     if (c == null) {
       throw Exception('Cliente Supabase não inicializado.');
     }

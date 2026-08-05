@@ -48,27 +48,38 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
   Future<void> _loadOptions() async {
     setState(() => _loading = true);
     try {
-      final funcionarios = await Db.list('funcionarios',
-          select: 'id,nome,forma_remuneracao,valor_diaria,valor_hora,valor_m3,valor_arvore,valor_producao_fixa,situacao');
-      final equipes = await Db.list('equipes', select: 'id,nome,integrantes');
-      final talhoes = await Db.list('talhoes', select: 'id,codigo');
+      final funcionarios = await Db.instance.client
+          .from('funcionarios')
+          .select('id,nome,forma_remuneracao,valor_diaria,valor_hora,valor_m3,valor_arvore,valor_producao_fixa,situacao')
+          .order('nome');
+      final equipes = await Db.instance.client
+          .from('equipes')
+          .select('id,nome')
+          .order('nome');
+      final talhoes = await Db.instance.client
+          .from('talhoes')
+          .select('id,codigo')
+          .order('codigo');
 
-      funcionarios.sort((a, b) =>
-          (a['nome'] ?? '').toString().compareTo((b['nome'] ?? '').toString()));
-      equipes.sort((a, b) =>
-          (a['nome'] ?? '').toString().compareTo((b['nome'] ?? '').toString()));
-      talhoes.sort((a, b) => (a['codigo'] ?? '')
-          .toString()
-          .compareTo((b['codigo'] ?? '').toString()));
+      final fList = (funcionarios as List).cast<Map<String, dynamic>>();
+      final eList = (equipes as List).cast<Map<String, dynamic>>();
+      final tList = (talhoes as List).cast<Map<String, dynamic>>();
 
       if (mounted) {
         setState(() {
-          _funcionarios = funcionarios
+          _funcionarios = fList
               .where((f) => (f['situacao'] ?? 'Ativo') == 'Ativo')
               .toList();
-          _equipes = equipes;
-          _talhoes = talhoes;
+          _equipes = eList;
+          _talhoes = tList;
         });
+      }
+    } catch (e) {
+      debugPrint('Erro ao carregar opções: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao carregar dados: $e')),
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -83,27 +94,40 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
 
     setState(() => _loading = true);
     try {
-      // Busca membros ativos da equipe
-      if (_equipeId == null) return;
       final membros = await Db.instance.client
           .from('equipe_membros')
-          .select('funcionario_id, funcionario:funcionarios!inner(*)')
-          .eq('equipe_id', _equipeId!)
-          .eq('funcionario.situacao', 'Ativo');
+          .select('funcionario_id')
+          .eq('equipe_id', _equipeId!);
 
-      final lista = (membros as List).map((m) {
-        final f = m['funcionario'] as Map<String, dynamic>? ?? {};
+      final funcionarioIds = (membros as List)
+          .cast<Map<String, dynamic>>()
+          .map((m) => m['funcionario_id'].toString())
+          .toList();
+
+      if (funcionarioIds.isEmpty) {
+        if (mounted) setState(() => _participantes = []);
+        return;
+      }
+
+      final funcionarios = await Db.instance.client
+          .from('funcionarios')
+          .select('id,nome,forma_remuneracao,valor_diaria,valor_hora,valor_m3,valor_arvore,valor_producao_fixa,situacao')
+          .inFilter('id', funcionarioIds)
+          .eq('situacao', 'Ativo');
+
+      final lista = (funcionarios as List).cast<Map<String, dynamic>>().map((f) {
         return {
           'funcionario': f,
           'selecionado': true,
           'horas': 1.0,
         };
-      }).where((p) => (p['funcionario'] as Map)['id'] != null).toList();
+      }).toList();
 
       if (mounted) {
         setState(() => _participantes = lista);
       }
     } catch (e) {
+      debugPrint('Erro ao carregar integrantes: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro ao carregar integrantes: $e')),
@@ -167,10 +191,10 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
       );
 
       if (mounted) {
-        Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Produção salva com sucesso.')),
         );
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) _showError('Erro ao salvar: $e');

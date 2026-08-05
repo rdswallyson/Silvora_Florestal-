@@ -1,7 +1,7 @@
 {
   "version": 2,
   "name": "silvora-florestal",
-  "buildCommand": "bash vercel_build.sh",
+  "buildCommand": "sh vercel_build.sh",
   "outputDirectory": "build/web",
   "framework": null,
   "installCommand": "npm install",

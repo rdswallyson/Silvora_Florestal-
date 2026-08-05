@@ -84,10 +84,11 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
     setState(() => _loading = true);
     try {
       // Busca membros ativos da equipe
+      if (_equipeId == null) return;
       final membros = await Db.instance.client
           .from('equipe_membros')
           .select('funcionario_id, funcionario:funcionarios!inner(*)')
-          .eq('equipe_id', _equipeId)
+          .eq('equipe_id', _equipeId!)
           .eq('funcionario.situacao', 'Ativo');
 
       final lista = (membros as List).map((m) {

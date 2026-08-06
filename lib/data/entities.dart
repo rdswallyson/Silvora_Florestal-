@@ -542,7 +542,7 @@ final Map<String, EntityDef> kEntities = {
     noun: 'produção',
     icon: Icons.grass_outlined,
     selectQuery:
-        '*, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)',
+        '*, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome), producao_funcionarios(*)',
     fields: [
       FieldDef('tipo_producao', 'Tipo de produção',
           type: FieldType.select,

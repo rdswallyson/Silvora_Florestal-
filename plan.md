@@ -1,12 +1,240 @@
+---
+
+# Plano de Feature — Preço por m³ por Cliente
+
+> Status: **Aguardando aprovação do usuário antes de qualquer alteração de código.**
+> Data: 2026-08-06
+> Escopo: módulos Clientes e Transporte do app SILVORA.
+
+---
+
+## 1. Contexto e Objetivo
+
+Hoje o campo `frete` no módulo Transporte é preenchido manualmente a cada viagem, sem referência ao preço praticado com cada cliente. Isso gera risco de erro humano e inconsistência.
+
+O objetivo é permitir cadastrar um **preço por m³ para cada cliente** e usá-lo para **preencher automaticamente o frete** ao registrar um transporte. O usuário poderá editar o valor manualmente quando necessário.
+
+---
+
+## 2. Requisitos
+
+1. Cada cliente deve ter um preço por m³ cadastrado.
+2. O preço pode mudar ao longo do tempo. Transportes já registrados no passado **não podem ter seus lançamentos financeiros recalculados retroativamente**.
+3. Ao criar/editar um transporte e selecionar um cliente, o campo `frete` deve ser preenchido automaticamente com `preço_vigente × volume_m3`.
+4. O campo `frete` continua editável manualmente.
+5. A mudança de preço do cliente não deve alterar transportes históricos.
+
+---
+
+## 3. Modelo de Dados Proposto
+
+### 3.1 Abordagem escolhida: histórico de preços
+
+Em vez de adicionar apenas `valor_m3` na tabela `clientes` (único valor atual), propomos uma **tabela separada de histórico de preços**:
+
+**`public.cliente_precos`**
+
+| Coluna | Tipo | Obrigatório | Default | Descrição |
+|---|---|---|---|---|
+| `id` | uuid | sim | `gen_random_uuid()` | PK |
+| `owner_id` | uuid | sim | `auth.uid()` | Isolamento entre usuários |
+| `cliente_id` | uuid | sim | — | FK para `clientes.id` |
+| `valor_m3` | numeric | sim | — | Preço por m³ naquele período |
+| `vigente_desde` | date | sim | `current_date` | Data de início da vigência |
+| `vigente_ate` | date | não | — | Data de fim da vigência (NULL = vigente) |
+| `created_at` | timestamptz | sim | `now()` | — |
+
+A tabela `clientes` também ganha um campo `valor_m3` (opcional, pode ser usado como valor padrão), mas o **preço vigente real é buscado em `cliente_precos`**, ordenando por `vigente_desde DESC`.
+
+### 3.2 Trade-off da abordagem
+
+**Vantagens:**
+- Preserva histórico completo de preços.
+- Permite saber qual preço estava vigente em qualquer data do passado.
+- Transportes antigos não são afetados por mudanças futuras.
+- Facilita relatórios de evolução de preço por cliente.
+
+**Desvantagens:**
+- Maior complexidade: toda consulta ao preço vigente precisa filtrar por data.
+- Necessita de validação para evitar sobreposição de vigências do mesmo cliente.
+
+**Alternativa descartada:** campo único `clientes.valor_m3`. É mais simples, mas quebra a regra de não recalcular transportes antigos se o preço mudar (pois não haveria como saber qual era o preço no dia do transporte).
+
+---
+
+## 4. Tabelas e Colunas Alteradas
+
+### 4.1 Nova tabela
+
+```sql
+CREATE TABLE public.cliente_precos (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  owner_id uuid NOT NULL DEFAULT auth.uid(),
+  cliente_id uuid NOT NULL REFERENCES public.clientes(id) ON DELETE CASCADE,
+  valor_m3 numeric NOT NULL,
+  vigente_desde date NOT NULL DEFAULT current_date,
+  vigente_ate date,
+  created_at timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT cliente_precos_owner_check CHECK (owner_id = auth.uid())
+);
+
+ALTER TABLE public.cliente_precos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY cliente_precos_own ON public.cliente_precos
+  FOR ALL USING (owner_id = auth.uid()) WITH CHECK (owner_id = auth.uid());
+
+CREATE INDEX idx_cliente_precos_cliente_vigencia
+  ON public.cliente_precos(cliente_id, vigente_desde DESC);
+```
+
+### 4.2 Tabela clientes (campo opcional auxiliar)
+
+```sql
+ALTER TABLE public.clientes
+  ADD COLUMN IF NOT EXISTS valor_m3 numeric;
+```
+
+Esse campo serve como **atalho visual** na tela de cadastro de clientes. Ao salvar um novo `valor_m3` em `clientes`, o sistema insere automaticamente um registro em `cliente_precos` com `vigente_desde = current_date`. Assim o usuário não precisa gerenciar duas telas.
+
+### 4.3 Tabela transporte (sem alteração estrutural)
+
+A tabela `transporte` já possui `cliente_id`, `volume_m3` e `frete`. Nenhuma coluna nova é necessária. O preenchimento automático do frete acontece **no frontend**, no momento da seleção do cliente/volume.
+
+### 4.4 Triggers ajustadas
+
+As triggers `transporte_gera_receita` e `transporte_atualiza_receita` continuam funcionando da mesma forma: criam/atualizam o lançamento financeiro baseado no valor de `frete`. Não haverá recálculo automático retroativo.
+
+---
+
+## 5. Telas Flutter a Serem Alteradas
+
+### 5.1 Tela de cadastro/edição de cliente
+
+**Arquivo:** `lib/screens/entity_list_screen.dart` (formulário genérico de clientes)
+
+**Mudanças:**
+- Exibir campo `valor_m3` no formulário de clientes.
+- Ao salvar, além de atualizar `clientes.valor_m3`, inserir um novo registro em `cliente_precos` com `vigente_desde = current_date` (apenas se o valor mudou).
+- Opcional: mostrar histórico de preços do cliente em um expansion tile ou tela secundária.
+
+### 5.2 Tela de Transporte
+
+**Arquivo:** `lib/screens/entity_list_screen.dart` (formulário genérico de transporte)
+
+**Mudanças:**
+- Detectar quando o usuário altera `cliente_id` ou `volume_m3`.
+- Buscar preço vigente em `cliente_precos` para o cliente selecionado.
+- Se houver preço vigente e `volume_m3` > 0, preencher `frete = valor_m3 × volume_m3`.
+- O campo `frete` continua editável.
+- Ao carregar uma edição existente, não recalcular o frete automaticamente (preservar o valor histórico).
+
+### 5.3 Service de preço
+
+**Novo arquivo:** `lib/services/cliente_preco_service.dart`
+
+**Responsabilidades:**
+- `Future<double?> buscarPrecoVigente(String clienteId, DateTime data)`
+- `Future<void> salvarPreco(String clienteId, double valorM3)`
+- `Future<List<Map>> listarHistorico(String clienteId)`
+
+---
+
+## 6. Fluxo de Uso Esperado
+
+### Cadastro de cliente
+1. Usuário abre cadastro de cliente.
+2. Preenche nome, cidade, tipo e **preço por m³**.
+3. Ao salvar, o sistema grava `clientes.valor_m3` e insere um registro em `cliente_precos`.
+
+### Mudança de preço
+1. Usuário edita o cliente e altera o preço por m³.
+2. O sistema fecha a vigência do preço anterior (preenche `vigente_ate`) e cria um novo registro com `vigente_desde = current_date`.
+3. Transportes antigos permanecem inalterados.
+
+### Novo transporte
+1. Usuário seleciona cliente.
+2. Sistema busca preço vigente em `cliente_precos`.
+3. Quando o usuário preenche `volume_m3`, o sistema calcula e preenche `frete`.
+4. Usuário pode ajustar o frete manualmente.
+5. Ao salvar, trigger cria/atualiza lançamento financeiro com base no `frete` final.
+
+---
+
+## 7. Plano de Teste
+
+### Teste 1: cadastro de cliente com preço
+- Cadastrar cliente com `valor_m3 = 10,00`.
+- Verificar que `clientes.valor_m3 = 10,00`.
+- Verificar que existe 1 registro em `cliente_precos` com `valor_m3 = 10,00` e `vigente_ate IS NULL`.
+
+### Teste 2: mudança de preço
+- Alterar cliente para `valor_m3 = 12,00`.
+- Verificar que o registro antigo em `cliente_precos` tem `vigente_ate` preenchido.
+- Verificar que existe novo registro com `valor_m3 = 12,00` e `vigente_ate IS NULL`.
+
+### Teste 3: preenchimento automático do frete
+- Criar transporte com cliente do teste 1, `volume_m3 = 30`.
+- Confirmar que `frete` foi preenchido com `300,00` (30 × 10).
+- Verificar lançamento financeiro criado com `valor = 300,00`.
+
+### Teste 4: preservação do histórico
+- Alterar preço do cliente para 12,00.
+- Confirmar que o transporte do teste 3 ainda tem `frete = 300,00`.
+- Confirmar que o lançamento financeiro antigo não foi alterado.
+
+### Teste 5: novo transporte após mudança de preço
+- Criar novo transporte com `volume_m3 = 30`.
+- Confirmar que `frete` foi preenchido com `360,00` (30 × 12).
+
+### Teste 6: edição manual do frete
+- Criar transporte com frete automático.
+- Alterar manualmente o frete para outro valor.
+- Salvar e confirmar que o valor manual foi persistido.
+
+---
+
+## 8. Migrações Necessárias
+
+1. `20260807000000_adiciona_valor_m3_clientes.sql`
+   - Adiciona `clientes.valor_m3`.
+
+2. `20260807000001_cria_tabela_cliente_precos.sql`
+   - Cria `cliente_precos` com RLS e índices.
+
+3. `20260807000002_migra_precos_iniciais.sql` (opcional)
+   - Para cada cliente com `valor_m3` preenchido, insere um registro inicial em `cliente_precos` com `vigente_desde = data de criação do cliente`.
+
+---
+
+## 9. Riscos e Considerações
+
+- **Sobreposição de vigências:** a migration deve incluir validação ou trigger para impedir duas vigências abertas (`vigente_ate IS NULL`) para o mesmo cliente.
+- **Cliente sem preço cadastrado:** se não houver preço vigente, o frete continua sendo preenchido manualmente.
+- **Volume zero ou nulo:** se `volume_m3` for zero, o frete permanece zero ou manual.
+- **Performance:** a consulta de preço vigente é simples (índice em `cliente_id, vigente_desde DESC`) e não deve impactar a usabilidade.
+
+---
+
+## 10. Decisões Pendentes
+
+Antes de aprovar, o usuário deve decidir:
+
+1. Quer mesmo manter o campo `clientes.valor_m3` como atalho, ou prefere gerenciar preços apenas pela tabela `cliente_precos`?
+2. Ao editar cliente e mudar o preço, quer que o sistema **feche automaticamente** a vigência anterior, ou prefere inserir novas vigências manualmente com datas específicas?
+3. Quer exibir o histórico de preços na tela de cliente?
+4. O preço deve ser buscado pela data do transporte ou sempre pela data atual?
+
+---
+
+[End of feature plan]
+
+---
+
 # Plano de Auditoria de Segurança — Bypass de Autenticação SILVORA
 
 > Status: **Aguardando aprovação do usuário antes de qualquer alteração de código.**
 > Data: 2026-07-29
 > Escopo: `lib/config/supabase_config.dart`, `lib/main.dart`, `lib/state/app_state.dart`, `lib/services/auth_service.dart`, `lib/services/db_service.dart`, `lib/routing/app_router.dart`, `lib/screens/splash_screen.dart`, `lib/screens/login_screen.dart`, `lib/screens/configuracoes_screen.dart`, `lib/screens/modules.dart`, `lib/screens/producao_screen.dart`, `lib/data/mock_data.dart`.
-
----
-
-# Plano de Auditoria de Segurança — Funções PL/pgSQL SECURITY DEFINER
 
 > Status: **Aguardando aprovação do usuário antes de qualquer alteração no banco.**
 > Data: 2026-08-05
@@ -14,518 +242,174 @@
 
 ---
 
-## 1. Resumo Executivo
+# Relatório de Estrutura — Usuários e Permissões (SILVORA)
 
-O banco de produção contém **6 funções `SECURITY DEFINER`** no esquema `public`. Dessas, **4 acessam ou modificam tabelas protegidas por RLS baseado em `owner_id`**. Funções `SECURITY DEFINER` ignoram as políticas RLS do chamador e executam com os privilégios do dono da função (normalmente `postgres` ou o usuário que criou). Se a função não validar `auth.uid()` internamente, um usuário autenticado pode ler ou alterar dados de outro usuário/owner através dessas funções.
-
-**Risco geral: MÉDIO a ALTO** — dependendo da função, um usuário pode:
-- Ler dados de funcionários de outro owner (`calcular_remuneracao_producao`, `gerar_producao_funcionarios` via trigger).
-- Inserir registros em `producao_funcionarios` com `owner_id` de outro usuário (`gerar_producao_funcionarios` via trigger).
-- Excluir registros de `producao_funcionarios` de outro usuário (`excluir_producao_funcionarios` via trigger).
-- Criar profiles sem validação de ownership (`handle_new_user`).
-- Modificar lançamentos financeiros de outro owner (`transporte_gera_receita`, `transporte_atualiza_receita` via triggers).
+> Status: **Documentação apenas. Nenhuma alteração foi feita.**
+> Data: 2026-08-06
+> Banco analisado: `Silvora Florestal` (`jkwnynwxxfesaagifkhq`)
 
 ---
 
-## 2. Funções Encontradas
+## 1. Hierarquia de usuários
 
-### 2.1 `calcular_remuneracao_producao(uuid, numeric, integer, numeric)`
+**Resposta curta: não existe hierarquia.**
 
-**Código:**
+Hoje, cada usuário autenticado no Supabase Auth é tratado como um **owner isolado**. O isolamento é feito exclusivamente pela política de RLS:
+
 ```sql
-CREATE OR REPLACE FUNCTION public.calcular_remuneracao_producao(
-  p_funcionario_id uuid,
-  p_volume numeric,
-  p_arvores integer,
-  p_horas numeric DEFAULT 1
-)
-RETURNS TABLE(forma_remuneracao text, valor_unitario numeric, quantidade_calculo numeric, valor_total numeric)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-declare
-  v_func public.funcionarios%rowtype;
-  ...
-begin
-  select * into v_func from public.funcionarios where id = p_funcionario_id;
-  ...
-end;
-$function$;
+(auth.uid() = owner_id)
 ```
 
-**Acesso a dados RLS:** sim, lê `public.funcionarios` (RLS por `owner_id`).
+Essa política se repete em praticamente todas as tabelas de negócio:
 
-**Validação de `auth.uid()`:** não. Recebe `p_funcionario_id` e lê qualquer funcionário com esse id, independente de `owner_id`.
+- `producao`
+- `producao_funcionarios`
+- `funcionarios`
+- `equipes`
+- `equipe_membros`
+- `talhoes`
+- `fazendas`
+- `transporte`
+- `lancamentos`
+- `clientes`
+- `estoque`
+- `veiculos`
+- `equipamentos`
 
-**Risco:** um usuário autenticado pode descobrir se um funcionário existe (informações como nome, cargo, valores de remuneração) passando um `uuid` arbitrário. Embora o retorno seja apenas cálculo, a função lê a linha inteira. Como é chamada dentro de trigger, o risco de exposição direta depende da API, mas a função em si não impede a leitura cross-owner.
+Cada usuário só enxerga e manipula registros onde `owner_id` é igual ao próprio UUID (`auth.uid()`). Não existe nenhuma política que permita, por exemplo, um usuário ler dados de outro, nem nenhum conceito de "super administrador" ou "dono da organização".
 
 ---
 
-### 2.2 `gerar_producao_funcionarios()` — trigger AFTER INSERT em `producao`
+## 2. A tabela `profiles` possui campo de role/permissão?
 
-**Código:**
-```sql
-CREATE OR REPLACE FUNCTION public.gerar_producao_funcionarios()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-begin
-  if NEW.tipo_producao = 'Individual' and NEW.funcionario_id is not null then
-    insert into public.producao_funcionarios (
-      owner_id, producao_id, funcionario_id, participou,
-      forma_remuneracao, valor_unitario, quantidade_calculo, valor_total
-    )
-    select
-      NEW.owner_id, NEW.id, NEW.funcionario_id, true,
-      c.forma_remuneracao, c.valor_unitario, c.quantidade_calculo, c.valor_total
-    from public.calcular_remuneracao_producao(NEW.funcionario_id, NEW.volume_total, NEW.total_arvores) c;
-  end if;
-  return NEW;
-end;
-$function$;
-```
+**Estrutura real da tabela `public.profiles`:**
 
-**Acesso a dados RLS:** sim, insere em `public.producao_funcionarios` (RLS por `owner_id`) e lê `public.funcionarios`.
-
-**Validação de `auth.uid()`:** não. Usa `NEW.owner_id` vindo do insert da aplicação. Se a aplicação inserir uma produção com `owner_id` de outro usuário, esta função propagará esse `owner_id` para `producao_funcionarios`. A trigger roda depois do RLS do insert em `producao`, então a política `producao_own` já teria bloqueado se o insert fosse feito via SQL com owner errado. No entanto, como `SECURITY DEFINER`, a trigger ignora RLS de `producao_funcionarios` e insere diretamente.
-
-**Risco:** médio. O caminho depende de conseguir inserir uma produção com owner_id de outro usuário. A política `producao_own` impede isso em inserts diretos via Supabase Client, mas bugs na aplicação ou execução via RPC poderiam contornar.
-
----
-
-### 2.3 `excluir_producao_funcionarios()` — trigger BEFORE DELETE em `producao`
-
-**Código:**
-```sql
-CREATE OR REPLACE FUNCTION public.excluir_producao_funcionarios()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-begin
-  delete from public.producao_funcionarios where producao_id = OLD.id;
-  return OLD;
-end;
-$function$;
-```
-
-**Acesso a dados RLS:** sim, exclui de `public.producao_funcionarios` (RLS por `owner_id`).
-
-**Validação de `auth.uid()`:** não. Exclui todos os registros de `producao_funcionarios` com `producao_id = OLD.id`, sem verificar `owner_id`.
-
-**Risco:** médio a alto. Se um usuário conseguir deletar uma produção de outro owner (a política `producao_own` impede em delete direto), esta trigger deletará os participantes associados independentemente de quem seja o owner. Como é `SECURITY DEFINER`, ela executa a deleção mesmo que o usuário não tenha permissão RLS sobre os registros de `producao_funcionarios`.
-
----
-
-### 2.4 `handle_new_user()` — trigger em `auth.users`
-
-**Código:**
-```sql
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $function$
-begin
-  insert into public.profiles (id, email, full_name)
-  values (NEW.id, NEW.email, NEW.raw_user_meta_data->>'nome');
-  return NEW;
-end;
-$function$;
-```
-
-**Acesso a dados RLS:** insere em `public.profiles` (RLS baseada em `id`, não `owner_id`).
-
-**Validação de `auth.uid()`:** implícita. A trigger roda no contexto do Supabase Auth e `NEW.id` é o UUID do novo usuário. A política `profiles_insert_own` exige `auth.uid() = id`, e como a função insere com `id = NEW.id`, isso está correto. Não há risco de cross-owner aqui.
-
-**Risco:** baixo. Função padrão do Supabase, comportamento esperado.
-
----
-
-### 2.5 `transporte_gera_receita()` — trigger em `transporte`
-
-**Código:**
-```sql
-CREATE OR REPLACE FUNCTION public.transporte_gera_receita()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $function$
-begin
-  if NEW.frete is not null and NEW.frete > 0 then
-    insert into public.lancamentos (tipo, descricao, categoria, valor, data, transporte_id)
-    values ('Receita', 'Frete: ' || COALESCE(NEW.origem,'Origem') || ' → ' || COALESCE(NEW.destino,'Destino'), 'Frete', NEW.frete, NEW.data, NEW.id);
-  end if;
-  return NEW;
-end;
-$function$;
-```
-
-**Acesso a dados RLS:** insere em `public.lancamentos` (RLS por `owner_id`).
-
-**Validação de `auth.uid()`:** não. Não define `owner_id` no insert. Se a tabela `lancamentos` tem default `auth.uid()` em `owner_id`, o valor será do usuário que disparou a trigger. Se não tiver default, o insert pode falhar ou usar um valor indefinido.
-
-**Risco:** médio. Dependendo do default da coluna `owner_id` em `lancamentos`, pode haver inconsistência de ownership. Além disso, como `SECURITY DEFINER`, o insert não passa pela política RLS do chamador.
-
----
-
-### 2.6 `transporte_atualiza_receita()` — trigger em `transporte`
-
-**Código:**
-```sql
-CREATE OR REPLACE FUNCTION public.transporte_atualiza_receita()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $function$
-begin
-  if NEW.frete is distinct from OLD.frete then
-    update public.lancamentos
-    set valor = COALESCE(NEW.frete, 0)
-    where transporte_id = NEW.id and categoria = 'Frete';
-  end if;
-  return NEW;
-end;
-$function$;
-```
-
-**Acesso a dados RLS:** sim, atualiza `public.lancamentos` (RLS por `owner_id`).
-
-**Validação de `auth.uid()`:** não. Atualiza qualquer lançamento de frete com `transporte_id = NEW.id`, independente de `owner_id`.
-
-**Risco:** alto. Se um usuário conseguir atualizar um transporte de outro owner (a política `transporte_own` impede em update direto), esta trigger atualizará o lançamento financeiro associado. Isso permite manipulação de dados financeiros de outros usuários.
-
----
-
-## 3. Tabelas com RLS (para referência)
-
-Todas as tabelas do esquema `public` possuem RLS ativada e uma política `*_own` exigindo `auth.uid() = owner_id`, exceto `profiles` que usa `auth.uid() = id`.
-
-- `clientes`, `equipamentos`, `equipe_membros`, `equipes`, `estoque`, `fazendas`, `funcionarios`, `lancamentos`, `producao`, `producao_funcionarios`, `profiles`, `talhoes`, `transporte`, `veiculos`.
-
----
-
-## 4. Proposta de Correção
-
-### 4.1 `calcular_remuneracao_producao`
-
-**Opção recomendada:** trocar para `SECURITY INVOKER` e fazer a query com filtro de `owner_id`.
-
-```sql
-CREATE OR REPLACE FUNCTION public.calcular_remuneracao_producao(
-  p_funcionario_id uuid,
-  p_volume numeric,
-  p_arvores integer,
-  p_horas numeric DEFAULT 1
-)
-RETURNS TABLE(forma_remuneracao text, valor_unitario numeric, quantidade_calculo numeric, valor_total numeric)
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path TO 'public'
-AS $$
-DECLARE
-  v_func public.funcionarios%rowtype;
-BEGIN
-  SELECT * INTO v_func
-  FROM public.funcionarios
-  WHERE id = p_funcionario_id AND owner_id = auth.uid();
-
-  IF NOT FOUND THEN
-    RETURN;
-  END IF;
-
-  -- ... restante do cálculo
-END;
-$$;
-```
-
-### 4.2 `gerar_producao_funcionarios`
-
-**Opção recomendada:** garantir que `NEW.owner_id = auth.uid()` antes de prosseguir.
-
-```sql
-CREATE OR REPLACE FUNCTION public.gerar_producao_funcionarios()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path TO 'public'
-AS $$
-BEGIN
-  IF NEW.owner_id IS DISTINCT FROM auth.uid() THEN
-    RAISE EXCEPTION 'owner_id inválido';
-  END IF;
-
-  IF NEW.tipo_producao = 'Individual' AND NEW.funcionario_id IS NOT NULL THEN
-    INSERT INTO public.producao_funcionarios (...)
-    SELECT NEW.owner_id, ...
-    FROM public.calcular_remuneracao_producao(...);
-  END IF;
-
-  RETURN NEW;
-END;
-$$;
-```
-
-### 4.3 `excluir_producao_funcionarios`
-
-**Opção recomendada:** trocar para `SECURITY INVOKER` e validar ownership.
-
-```sql
-CREATE OR REPLACE FUNCTION public.excluir_producao_funcionarios()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path TO 'public'
-AS $$
-BEGIN
-  DELETE FROM public.producao_funcionarios
-  WHERE producao_id = OLD.id AND owner_id = auth.uid();
-  RETURN OLD;
-END;
-$$;
-```
-
-### 4.4 `transporte_gera_receita`
-
-**Opção recomendada:** definir `owner_id = auth.uid()` no insert e usar `SECURITY INVOKER`.
-
-```sql
-CREATE OR REPLACE FUNCTION public.transporte_gera_receita()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path TO 'public'
-AS $$
-BEGIN
-  IF NEW.frete IS NOT NULL AND NEW.frete > 0 THEN
-    INSERT INTO public.lancamentos (
-      owner_id, tipo, descricao, categoria, valor, data, transporte_id
-    )
-    VALUES (
-      auth.uid(),
-      'Receita',
-      'Frete: ' || COALESCE(NEW.origem,'Origem') || ' → ' || COALESCE(NEW.destino,'Destino'),
-      'Frete', NEW.frete, NEW.data, NEW.id
-    );
-  END IF;
-  RETURN NEW;
-END;
-$$;
-```
-
-### 4.5 `transporte_atualiza_receita`
-
-**Opção recomendada:** trocar para `SECURITY INVOKER` e filtrar por `owner_id = auth.uid()`.
-
-```sql
-CREATE OR REPLACE FUNCTION public.transporte_atualiza_receita()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path TO 'public'
-AS $$
-BEGIN
-  IF NEW.frete IS DISTINCT FROM OLD.frete THEN
-    UPDATE public.lancamentos
-    SET valor = COALESCE(NEW.frete, 0)
-    WHERE transporte_id = NEW.id
-      AND categoria = 'Frete'
-      AND owner_id = auth.uid();
-  END IF;
-  RETURN NEW;
-END;
-$$;
-```
-
-### 4.6 `handle_new_user`
-
-**Ação:** nenhuma. Já está segura porque `NEW.id` vem do Auth e a política de `profiles` exige `auth.uid() = id`.
-
----
-
-## 5. Recomendação Final
-
-**Aprovar e aplicar as correções das seções 4.1 a 4.5.** As funções `gerar_producao_funcionarios`, `excluir_producao_funcionarios`, `transporte_gera_receita` e `transporte_atualiza_receita` apresentam risco real de bypass de RLS. A função `calcular_remuneracao_producao` apresenta risco de vazamento de dados de funcionários de outros owners.
-
-**NÃO alterar `handle_new_user`** — comportamento seguro e padrão.
-
-**Observação:** ao trocar para `SECURITY INVOKER`, as triggers continuarão funcionando normalmente porque o contexto de execução de triggers em tabelas RLS já é o do usuário autenticado que disparou a operação.
-
----
-
-## 6. Plano de Teste Pós-Correção
-
-### 6.1 Teste de cadastro de produção (individual e equipe)
-
-**Objetivo:** confirmar que a troca para `SECURITY INVOKER` e a adição de `owner_id = auth.uid()` não quebram o fluxo já validado.
-
-**Passos:**
-1. Aplicar as correções das seções 4.1, 4.2 e 4.3.
-2. Fazer login no app com um usuário real.
-3. Navegar até **Nova Produção → Individual**.
-4. Selecionar um funcionário, talhão, preencher data, volume e árvores, e salvar.
-5. Verificar no Supabase (SQL Editor ou Table Editor) que:
-   - Um registro foi criado em `public.producao` com `owner_id = auth.uid()` do usuário logado.
-   - Um registro foi criado em `public.producao_funcionarios` vinculado a essa produção, com `owner_id` correto e valores calculados conforme a forma de remuneração do funcionário.
-6. Repetir o teste em **Nova Produção → Equipe**.
-7. Selecionar uma equipe e confirmar que a lista de participantes com checkboxes aparece.
-8. Salvar e verificar que foram criados:
-   - Um registro em `public.producao`.
-   - Um registro em `public.producao_funcionarios` para cada participante marcado, com `owner_id` correto.
-
-**Critério de aceitação:** os dados aparecem corretamente nas duas tabelas e os valores de remuneração estão coerentes.
-
-### 6.2 Teste de cadastro de transporte com frete
-
-**Objetivo:** confirmar que a correção de `transporte_gera_receita` (adição explícita de `owner_id = auth.uid()`) funciona e resolve o bug de lançamento sem owner.
-
-**Passos:**
-1. Aplicar as correções das seções 4.4 e 4.5.
-2. Fazer login no app.
-3. Navegar até o fluxo de cadastro de transporte (se disponível) e criar um transporte com:
-   - `frete` maior que 0.
-   - `origem` e `destino` preenchidos.
-   - `data` preenchida.
-4. Verificar no Supabase que:
-   - O transporte foi salvo em `public.transporte` com `owner_id` correto.
-   - Um lançamento foi criado automaticamente em `public.lancamentos` com:
-     - `tipo = 'Receita'`
-     - `categoria = 'Frete'`
-     - `valor = frete`
-     - `transporte_id = id do transporte`
-     - `owner_id = auth.uid()` do usuário logado (isso é o que a correção acrescenta; hoje o campo fica vazio ou indefinido).
-5. Editar o frete do transporte e salvar.
-6. Verificar que o lançamento em `public.lancamentos` foi atualizado com o novo valor e apenas o lançamento do próprio owner foi afetado.
-
-**Critério de aceitação:** o lançamento financeiro é criado/atualizado com `owner_id` correto e não afeta dados de outros usuários.
-
-### 6.3 Confirmação de segurança dos dados existentes
-
-**Objetivo:** garantir que `CREATE OR REPLACE FUNCTION` não altera dados históricos.
-
-**Passos:**
-1. Antes de aplicar, executar backup lógico opcional:
-   ```sql
-   -- Não é obrigatório, mas recomendado para maior segurança
-   -- pg_dump via Supabase CLI ou Dashboard
-   ```
-2. Aplicar as 5 correções via `CREATE OR REPLACE FUNCTION`.
-3. Executar queries de contagem para confirmar que nenhuma linha foi perdida:
-   ```sql
-   SELECT count(*) FROM public.producao;
-   SELECT count(*) FROM public.producao_funcionarios;
-   SELECT count(*) FROM public.lancamentos;
-   SELECT count(*) FROM public.transporte;
-   ```
-4. Comparar os valores com os contadores anteriores (se disponíveis) ou simplesmente confirmar que estão consistentes.
-
-**Critério de aceitação:** nenhuma tabela perde registros após a aplicação das correções.
-
-### 6.4 Reversibilidade
-
-**Objetivo:** confirmar que é possível reverter rapidamente se algo quebrar.
-
-**Procedimento:**
-- `CREATE OR REPLACE FUNCTION` apenas substitui o corpo da função. **Não apaga dados**, não remove triggers e não altera tabelas.
-- Se algum teste falhar, basta executar novamente `CREATE OR REPLACE FUNCTION` com o código original (que será mantido no arquivo `plan.md` ou em backup da migration) para restaurar o comportamento anterior.
-- Recomenda-se testar primeiro em um banco de desenvolvimento/branch, se disponível. Como o projeto não possui branch configurado, os testes serão feitos diretamente em produção, mas fora do horário de pico e com os comandos de reversão prontos.
-
-**Critério de aceitação:** as funções podem ser restauradas ao estado anterior sem perda de dados.
-
----
-
-## 7. Resultados dos Testes (após aplicação)
-
-**Data da execução:** 2026-08-06  
-**Banco:** Silvora Florestal (`jkwnynwxxfesaagifkhq`)
-
-### 7.1 Verificação das funções no catálogo
-
-Todas as 5 funções corrigidas aparecem com `security_definer = false` (ou seja, `SECURITY INVOKER`):
-
-| Função | security_definer |
-|---|---|
-| `calcular_remuneracao_producao` | false |
-| `gerar_producao_funcionarios` | false |
-| `excluir_producao_funcionarios` | false |
-| `transporte_gera_receita` | false |
-| `transporte_atualiza_receita` | false |
-
-### 7.2 Teste de produção individual
-
-Inserida produção individual com volume = 22 m³ para funcionário com remuneração `Metro cúbico` e valor = R$ 7,50.
-
-Resultado em `producao_funcionarios`:
-- `forma_remuneracao`: Metro cúbico
-- `valor_unitario`: 7.50
-- `quantidade_calculo`: 22
-- `valor_total`: 165.00
-- `owner_id`: igual ao UUID do usuário logado
-
-**Status:** aprovado.
-
-### 7.3 Teste de produção em equipe
-
-Inserida produção em equipe com volume = 30 m³ e total de árvores = 15. Três participantes marcados; um desmarcado.
-
-Resultado em `producao_funcionarios`:
-
-| Funcionário | Forma | Valor unitário | Quantidade | Valor total |
-|---|---|---|---|---|
-| bruna romero | Metro cúbico | 8.00 | 30 | 240.00 |
-| vicente avilar | Metro cúbico | 7.50 | 30 | 225.00 |
-| Whallyson | Diária | 150.00 | 1 | 150.00 |
-| Adriana Barros | — | — | — | **não criado (desmarcada)** |
-
-Todos os registros criados possuem `owner_id` correto.
-
-**Status:** aprovado.
-
-### 7.4 Teste de transporte com frete
-
-Inserido transporte com frete = R$ 500,00. Verificado que:
-- Um lançamento foi criado em `public.lancamentos` com `tipo = 'Receita'`, `categoria = 'Frete'`, `valor = 500.00` e `owner_id` correto.
-- O `transporte_id` foi preenchido (foi necessário adicionar a coluna `transporte_id` em `lancamentos`, pois ela não existia no banco de produção apesar de constar na migration antiga).
-
-Após atualizar o frete para R$ 750,00:
-- O lançamento correspondente foi atualizado para `valor = 750.00`.
-- Apenas o lançamento do próprio `owner_id` foi afetado.
-
-**Status:** aprovado.
-
-### 7.5 Contagem de dados (antes vs. depois)
-
-| Tabela | Antes | Depois | Variação |
+| Coluna | Tipo | Obrigatório | Default |
 |---|---|---|---|
-| `producao` | 10 | 13 | +3 (testes) |
-| `producao_funcionarios` | 5 | 10 | +5 (testes) |
-| `lancamentos` | 2 | 3 | +1 (teste) |
-| `transporte` | 3 | 4 | +1 (teste) |
+| `id` | uuid | sim | — |
+| `nome` | text | não | — |
+| `email` | text | não | — |
+| `cargo` | text | não | — |
+| `telefone` | text | não | — |
+| `avatar_url` | text | não | — |
+| `created_at` | timestamptz | sim | `now()` |
+| `updated_at` | timestamptz | sim | `now()` |
+| `empresa` | text | não | — |
+| `cidade` | text | não | — |
+| `estado` | text | não | — |
+| `cpf` | text | não | — |
+| `full_name` | text | não | — |
 
-Nenhum registro existente foi perdido ou alterado.
+**Existe `cargo` e existe `empresa`, mas ambos são campos de texto livre** (`text`, nullable), sem validação, sem enumeração e sem uso em regras de acesso.
 
-### 7.6 Observação importante sobre `lancamentos.transporte_id`
+**Políticas de RLS em `profiles`:**
 
-Durante os testes, descobriu-se que a coluna `transporte_id` **não existia** na tabela `public.lancamentos` do banco de produção, embora a migration `20260720000003_relations.sql` a declare. Sem essa coluna, as funções `transporte_gera_receita` e `transporte_atualiza_receita` não conseguiam vincular o lançamento ao transporte.
+| Policy | Comando | Regra |
+|---|---|---|
+| `profiles_insert_own` | INSERT | `auth.uid() = id` |
+| `profiles_own` | ALL | `auth.uid() = id` |
+| `profiles_select_own` | SELECT | `auth.uid() = id` |
+| `profiles_update_own` | UPDATE | `auth.uid() = id` |
 
-**Ação corretiva adicional aplicada:**
-- Migration `20260806000001_adiciona_transporte_id_lancamentos.sql` criada e aplicada.
-- Adicionou a coluna `transporte_id` (nullable, FK para `transporte.id`) e um índice.
-- Nenhum dado existente foi afetado, pois a coluna é nullable.
+Ou seja, o `cargo` e a `empresa` são meramente informativos. **Nenhuma tela, RLS ou regra de negócio usa esses campos para permitir/proibir ações.**
 
 ---
 
-## Apêndice A — Funções de outros esquemas
+## 3. O "Administrador" na tela de perfil é real ou hardcoded?
 
-Foram identificadas também funções `SECURITY DEFINER` nos esquemas `pgbouncer` (`get_auth`) e `vault` (`create_secret`, `update_secret`). Essas são extensões/módulos oficiais do Supabase e **não devem ser alteradas**.
+**É hardcoded.**
+
+No arquivo `lib/widgets/app_shell.dart`, o texto "Administrador" aparece literalmente na interface, sem consultar nenhum campo do banco:
+
+```dart
+Text('Administrador',
+    style: TextStyle(
+        color: Colors.white.withValues(alpha: 0.6),
+        fontSize: 12)),
+```
+
+A tela de configurações (`lib/screens/configuracoes_screen.dart`) permite editar o campo `cargo` do próprio profile, mas esse valor não é usado para nada funcional. O app simplesmente exibe "Administrador" fixo no drawer/cabeçalho.
+
+Há também um valor `'Administrador'` dentro do enum de cargos da entidade `funcionarios` (`lib/data/entities.dart`), mas isso se refere ao **cargo de um funcionário cadastrado no sistema**, não ao tipo de usuário logado.
 
 ---
 
-[End of security audit report]
+## 4. O que representa a tabela `clientes`?
+
+**Estrutura real:**
+
+| Coluna | Tipo | Obrigatório | Default |
+|---|---|---|---|
+| `id` | uuid | sim | `gen_random_uuid()` |
+| `owner_id` | uuid | sim | `auth.uid()` |
+| `nome` | text | sim | — |
+| `tipo` | text | não | — |
+| `cidade` | text | não | — |
+| `pendencia` | numeric | não | `0` |
+| `created_at` | timestamptz | sim | `now()` |
+
+**Conceito:** representa **clientes externos** que compram produtos/serviços da empresa do usuário. Não representa filiais/subsidiárias (não há tabela de unidades/empresas).
+
+**Relacionamentos:**
+
+- `transporte.cliente_id` referencia `clientes.id`: um transporte pode estar vinculado a um cliente (provavelmente entrega de madeira/produto).
+- Não há FK de `clientes` para `lancamentos`. Os lançamentos financeiros (`lancamentos`) são gerados pelas triggers de transporte (`transporte_gera_receita`) ou inseridos manualmente, sempre com `owner_id` do usuário logado.
+
+A coluna `tipo` e `pendencia` sugerem que a ideia original era controlar saldo devedor do cliente, mas não há triggers ou rotinas que atualizem `pendencia` automaticamente com base em transportes ou lançamentos.
+
+---
+
+## 5. Existe conceito de "empresa" ou "organização"?
+
+**Não.**
+
+Não existem tabelas como `empresas`, `organizations`, `companies`, `filiais` ou `unidades`. O campo `empresa` em `profiles` é um campo de texto livre, sem FK, sem relação com nenhuma outra tabela.
+
+Cada `profile`/`owner_id` é tratado como uma **empresa isolada**. O app é multi-tenant por usuário, não por organização. Não há como dois usuários diferentes compartilharem os mesmos funcionários, equipes, talhões, etc.
+
+---
+
+## 6. É possível dar acesso a um funcionário com permissões diferenciadas?
+
+**Não, com a estrutura atual não é possível.**
+
+Hoje, qualquer usuário que fizer login no app tem acesso total a todos os módulos do próprio `owner_id`. Não existe mecanismo de:
+
+- Roles ou perfis de acesso
+- Permissões por tela ou por ação
+- Convite de usuários para compartilhar a mesma base de dados
+- Hierarquia admin/operador
+
+**Para implementar isso do zero, seria necessário criar, no mínimo:**
+
+1. **Tabela de organizações/empresas** (`empresas`):
+   - `id`, `nome`, `owner_id` (dono/administrador principal)
+
+2. **Tabela de vínculo usuário-organização** (`organizacao_membros` ou similar):
+   - `organizacao_id`, `user_id`, `role` (ex: `admin`, `operador`, `financeiro`, `producao`)
+
+3. **Ajuste no cadastro de todas as tabelas de negócio**:
+   - Adicionar `organizacao_id` (além ou no lugar de `owner_id`)
+   - Alterar todas as políticas RLS de `auth.uid() = owner_id` para `auth.uid() in (select user_id from organizacao_membros where organizacao_id = tabela.organizacao_id)`
+
+4. **Controle de permissões no app**:
+   - Centralizar a role do usuário logado em um serviço
+   - Ocultar/bloquear menus, botões e telas conforme a role
+   - Validar permissões também no banco (RLS) para não depender só do frontend
+
+5. **Convite de usuários**:
+   - Fluxo para enviar convite por e-mail
+   - Aceite e criação do vínculo na tabela de membros
+
+**Resumo:** a arquitetura atual é simples e funciona para um único dono operando sozinho. Qualquer cenário de "funcionário acessa o app com permissões limitadas" exigiria uma refatoração significativa do modelo de dados e das regras de segurança.
+
+---
+
+## Conclusão
+
+O SILVORA hoje é um app **single-owner por design**. O usuário logado é o dono isolado de todos os dados. Os campos `cargo` e `empresa` existem, mas são informativos e não afetam permissões. O texto "Administrador" na interface é fixo. Não há hierarquia, roles funcionais nem compartilhamento de dados entre usuários.
+
+---
 
 # Plano de Auditoria de Segurança — Bypass de Autenticação SILVORA
 
@@ -632,543 +516,104 @@ Usam `MockData` fixo e não verificam autenticação. Atualmente não estão rot
 
 ### 3.1 Comportamento padrão quando FLUTTER_ENV está ausente
 
-**Resposta:** o padrão é **modo produção**. `SupabaseConfig.isDev` só é `true` quando `FLUTTER_ENV == 'dev'`. Qualquer outro valor (incluindo string vazia ou ausente) resulta em `isDev == false`. Em modo produção, falha na configuração/inicialização do Supabase **bloqueia** o acesso.
+**Resposta:** o padrão é **modo produção**. `SupabaseConfig.isDev` só é `true` quando `FLUTTER_ENV == 'dev'`. Qualquer outro valor (incluindo string vazia ou ausente) resulta em `isDev == false`. Em modo produção, se `Supabase.initialize()` falhar, o app mostra tela de erro e **não** cai para mock.
 
-### 3.2 A correção cobre todas as telas que usam MockData?
+### 3.2 Cobertura das telas legadas
 
-**Resposta:** sim. A proposta cobre `login_screen.dart`, `app_router.dart` e também isola `modules.dart` e `producao_screen.dart` para só funcionarem quando `SupabaseConfig.isMockMode == true`. Nenhuma tela poderá acessar `MockData` em produção.
+**Resposta:** a correção cobre **todas** as telas que usam `MockData` ou bypass. Telas legadas (`modules.dart`, `producao_screen.dart`) serão isoladas: continuam existindo para uso em dev, mas nunca são roteadas quando `isDev == false`. O `app_router.dart` só aponta para `EntityListScreen`/`ProducaoFormScreen`/`EntityDetailScreen`.
 
 ### 3.3 Diff de `vercel_build.sh`
 
-O script passará `--dart-define` para o Flutter usando as variáveis de ambiente do Vercel:
-
-```bash
-flutter build web --release \
-  --dart-define=SUPABASE_URL="$SUPABASE_URL" \
-  --dart-define=SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
-```
-
-Em produção, `FLUTTER_ENV` **nunca** é passado. O script ignora explicitamente `FLUTTER_ENV=dev` se estiver configurado por engano.
-
----
-
-## 4. Plano de Correção
-
-### 4.1 `lib/config/supabase_config.dart`
-
-- Remover `defaultValue` reais do Supabase.
-- Em desenvolvimento, usar `FLUTTER_ENV=dev` para ativar mock.
-- Em produção, sem credenciais, `isConfigured == false`.
-
-### 4.2 `lib/main.dart`
-
-- Capturar exceção de `Supabase.initialize()`.
-- Se falhar e NÃO estiver em modo dev, mostrar tela de erro (`_ErrorApp`) em vez de continuar.
-
-### 4.3 `lib/routing/app_router.dart`
-
-- Usar `Supabase.instance.clientOrNull` para evitar `StateError`.
-- Redirecionar para `/login` quando não houver sessão.
-
-### 4.4 `lib/screens/login_screen.dart`
-
-- Remover bypass quando `isConfigured == false`.
-- Permitir entrada sem senha **apenas** quando `SupabaseConfig.isMockMode == true`.
-- Mostrar banner claro de "modo demonstração" quando em mock.
-
-### 4.5 `lib/services/auth_service.dart` e `db_service.dart`
-
-- Usar `clientOrNull` e tratar cliente não inicializado.
-
-### 4.6 Telas legadas
-
-- Em `modules.dart` e `producao_screen.dart`, verificar `SupabaseConfig.isMockMode` e mostrar tela de "indisponível em produção" se falso.
-
----
-
-## 5. Checklist de Validação
-
-- [ ] `FLUTTER_ENV` ausente → modo produção, falha bloqueia app.
-- [ ] `FLUTTER_ENV=dev` → modo mock disponível.
-- [ ] Login real funciona com credenciais válidas.
-- [ ] Login em produção sem configuração mostra erro e não entra.
-- [ ] Build web passa sem erros.
-- [ ] Deploy na Vercel funciona.
-- [ ] Dashboard e relatórios continuam funcionando.
-
----
-
-[End of original plan]
-
-> **Nota:** este arquivo agora contém dois relatórios: o plano original de bypass de autenticação (já implementado) e o novo relatório de auditoria de funções PL/pgSQL SECURITY DEFINER (aguardando aprovação).
-
-O app SILVORA possui **caminhos explícitos de bypass de autenticação** que são ativados quando a configuração do Supabase não é detectada (`SupabaseConfig.isConfigured == false`). Esse comportamento foi criado propositalmente para testes/demonstração, mas **não está isolado em ambiente de desenvolvimento**: em um build de produção na Vercel, se a variável de ambiente `SUPABASE_PUBLISHABLE_KEY` não for injetada ou se o valor default for aceito, o app abre como "modo demonstração", permitindo acesso a todas as telas e ações sem login real.
-
-Além disso, telas legadas (`modules.dart`, `producao_screen.dart`) usam `MockData` fixo e **não verificam autenticação**, embora atualmente não estejam roteadas no `app_router.dart` (usam `EntityListScreen` no lugar). Isso representa um risco residual se alguma dessas telas for reativada.
-
----
-
-## 2. Código Envolvido e Condições de Bypass
-
-### 2.1 `lib/config/supabase_config.dart`
-
-```dart
-static const String supabaseUrl = String.fromEnvironment(
-  'SUPABASE_URL',
-  defaultValue: 'https://jkwnynwxxfesaagifkhq.supabase.co',
-);
-
-static const String supabasePublishableKey = String.fromEnvironment(
-  'SUPABASE_PUBLISHABLE_KEY',
-  defaultValue: 'sb_publishable_JUUrV_RGS8Cjp3x8r1R5gw_CBVlaygw',
-);
-
-static bool get isConfigured =>
-    supabaseUrl.startsWith('http') &&
-    supabasePublishableKey.length > 20 &&
-    !supabasePublishableKey.contains('COLE_AQUI');
-```
-
-**Condição de bypass:** `isConfigured` é `true` se houver qualquer URL http e chave com mais de 20 caracteres. O `defaultValue` real do projeto satisfaz essa condição, então **o bypass NUNCA é acionado por ausência de variável de ambiente** no build padrão.
-
-**Risco em produção:**
-- **Baixo** para o caso "variável ausente", porque o default já preenche.
-- **Alto** para o caso "chave inválida/expirada/alterada": se o valor da variável de ambiente for uma string longa mas incorreta, `isConfigured` ainda será `true`, `Supabase.initialize()` será chamado e **falhará silenciosamente ou em runtime**, e o app continuará rodando. Não há captura de exceção em `main()`.
-- **Alto** para o caso "URL malformada": `isConfigured` pode ser `false` se a URL não começar com `http`, mas isso só acontece se a variável de ambiente for deliberadamente alterada para algo curto/errado.
-
-### 2.2 `lib/main.dart`
-
-```dart
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  if (SupabaseConfig.isConfigured) {
-    await Supabase.initialize(
-      url: SupabaseConfig.supabaseUrl,
-      publishableKey: SupabaseConfig.supabasePublishableKey,
-    );
-  }
-  runApp(const RdsPhorestalApp());
-}
-```
-
-**Condição de bypass:** se `isConfigured == false`, o Supabase não é inicializado, mas o app roda normalmente.
-
-**Risco em produção:**
-- Se `Supabase.initialize()` lançar exceção (chave inválida, timeout de rede, resposta inesperada), a exceção **não é capturada**. Isso pode causar:
-  - Crash na inicialização (melhor cenário de segurança, pois nega acesso).
-  - Ou, dependendo do erro, inicialização parcial que permite bypass.
-- Atualmente, como `isConfigured` é `true` no default, `Supabase.initialize()` sempre é chamado. Se a chave estiver errada, o app pode crashar ao tentar usá-la, o que é melhor do que permitir acesso, mas a UX é ruim (tela branca/travada).
-
-### 2.3 `lib/routing/app_router.dart`
-
-```dart
-class _AuthRefresh extends ChangeNotifier {
-  _AuthRefresh() {
-    if (SupabaseConfig.isConfigured) {
-      _sub = AuthService.instance.onAuthStateChange.listen((_) {
-        notifyListeners();
-      });
-    }
-  }
-  ...
-}
-
-final appRouter = GoRouter(
-  initialLocation: '/',
-  refreshListenable: _AuthRefresh(),
-  redirect: (context, state) {
-    // Sem Supabase configurado: sem guarda (modo demonstração).
-    if (!SupabaseConfig.isConfigured) return null;
-    final loggedIn = AuthService.instance.isLoggedIn;
-    final loc = state.uri.path;
-    final onSplash = loc == '/';
-    final onLogin = loc == '/login';
-    if (onSplash) return null;
-    if (!loggedIn && !onLogin) return '/login';
-    if (loggedIn && onLogin) return '/dashboard';
-    return null;
-  },
-  ...
-);
-```
-
-**Condição de bypass:** quando `!SupabaseConfig.isConfigured`, o `redirect` retorna `null` para qualquer rota, desativando completamente o guarda de autenticação.
-
-**Risco em produção:**
-- **Alto** se `isConfigured` for `false` por qualquer motivo: qualquer pessoa acessa `/dashboard`, `/producao`, `/financeiro`, `/relatorios`, `/configuracoes`, etc.
-- `_AuthRefresh` não escuta mudanças de auth no modo não-configurado, então transições de login não são monitoradas — isso é consistente com o bypass, mas é uma falha de design.
-
-### 2.4 `lib/screens/splash_screen.dart`
-
-```dart
-Future.delayed(const Duration(milliseconds: 2200), () {
-  if (!mounted) return;
-  if (SupabaseConfig.isConfigured && AuthService.instance.isLoggedIn) {
-    context.go('/dashboard');
-  } else {
-    context.go('/login');
-  }
-});
-```
-
-**Condição de bypass:** se `isConfigured == false`, sempre redireciona para `/login`.
-
-**Risco em produção:**
-- O redirect em `app_router.dart` já desarma o guarda quando `isConfigured == false`, então mesmo indo para `/login`, o usuário pode navegar manualmente para qualquer rota.
-- Se `isConfigured == true` mas `Supabase.instance.client` não estiver inicializado (exceção em `main`), `AuthService.instance.isLoggedIn` acessará `Supabase.instance.client` e **lançará `StateError` (client not initialized)**. Isso pode travar a splash ou gerar tela vermelha.
-
-### 2.5 `lib/screens/login_screen.dart`
-
-```dart
-Future<void> _entrar() async {
-  // Sem credenciais configuradas: fluxo de demonstração (mock).
-  if (!SupabaseConfig.isConfigured) {
-    context.go('/dashboard');
-    return;
-  }
-  ...
-}
-
-Future<void> _cadastrar() async {
-  if (!SupabaseConfig.isConfigured) {
-    showEmBreve(context, 'Cadastro (configure o Supabase)');
-    return;
-  }
-  ...
-}
-
-Future<void> _esqueci() async {
-  if (!SupabaseConfig.isConfigured) {
-    showEmBreve(context, 'Recuperação de senha (configure o Supabase)');
-    return;
-  }
-  ...
-}
-```
-
-E no build:
-
-```dart
-if (!SupabaseConfig.isConfigured) ...[
-  const SizedBox(height: 12),
-  Container(
-    ...
-    child: Text(
-      'Modo demonstração: qualquer login entra. '
-      'Configure o Supabase para login real.',
-      ...
-    ),
-  ),
-],
-```
-
-**Condição de bypass:** ao pressionar "Entrar" com `isConfigured == false`, o app vai direto para `/dashboard` sem validar campos.
-
-**Risco em produção:**
-- **Alto** se `isConfigured == false`. Qualquer pessoa entra com um clique.
-- O botão "Entrar com biometria" também chama `_entrar()`, então também bypassa.
-- Cadastro e recuperação de senha são bloqueados visualmente, mas isso é irrelevante porque o login principal está aberto.
-
-### 2.6 `lib/services/auth_service.dart`
-
-```dart
-SupabaseClient get _client => Supabase.instance.client;
-
-User? get currentUser => _client.auth.currentUser;
-bool get isLoggedIn => currentUser != null;
-
-Stream<AuthState> get onAuthStateChange => _client.auth.onAuthStateChange;
-```
-
-**Condição de bypass:** não há bypass direto aqui, mas **não há proteção contra `Supabase.instance.client` não inicializado**. Se `main()` não inicializou o Supabase, qualquer acesso a `_client` lança `StateError`.
-
-**Risco em produção:**
-- **Médio/Alto**: se `main()` falhar silenciosamente ou `isConfigured` oscilar, o app pode crashar em vez de mostrar erro amigável.
-- `friendlyError` usa `kDebugMode` para decidir se expõe a mensagem técnica. Em release, a mensagem é genérica, o que é bom, mas não resolve o bypass.
-
-### 2.7 `lib/services/db_service.dart`
-
-```dart
-static SupabaseClient get _c => Supabase.instance.client;
-```
-
-**Condição de bypass:** como `Db` acessa `Supabase.instance.client` diretamente, se o cliente não estiver inicializado, todas as operações de CRUD falham com exceção.
-
-**Risco em produção:**
-- **Baixo para segurança** (falha fechada), mas **alto para UX** (telas quebradas, listas vazias, botões sem ação).
-- Não há fallback para mock no `Db`, o que é positivo do ponto de vista de segurança.
-
-### 2.8 `lib/screens/configuracoes_screen.dart`
-
-```dart
-Future<void> _loadProfile() async {
-  if (!SupabaseConfig.isConfigured) {
-    setState(() => _loading = false);
-    return;
-  }
-  ...
-}
-
-Future<void> _saveProfile() async {
-  if (!SupabaseConfig.isConfigured) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Supabase não configurado.')),
-      );
-    }
-    return;
-  }
-  ...
-}
-
-OutlinedButton.icon(
-  onPressed: () async {
-    if (SupabaseConfig.isConfigured) {
-      await AuthService.instance.signOut();
-    }
-    if (context.mounted) context.go('/login');
-  },
-  icon: const Icon(Icons.logout),
-  label: const Text('Sair da conta'),
-),
-```
-
-**Condição de bypass:**
-- Perfil não carrega se não configurado (aceitável).
-- Salvamento é bloqueado (aceitável).
-- Logout: se não configurado, apenas redireciona para `/login`. Não há sessão real para encerrar.
-
-**Risco em produção:**
-- **Médio**: em modo não-configurado, o botão "Sair da conta" dá a falsa impressão de segurança, mas nunca houve sessão. Se o usuário voltar ao `/dashboard` pela URL, entra novamente.
-- O cabeçalho mostra `email = AuthService.instance.currentUser?.email ?? ''`, que pode lançar exceção se `Supabase.instance.client` não estiver inicializado.
-
-### 2.9 Telas legadas com mock fixo
-
-Arquivos:
-- `lib/screens/modules.dart` — importa `MockData` e renderiza listas fake para funcionários, equipes, fazendas, talhões, transportes, clientes, equipamentos, estoque.
-- `lib/screens/producao_screen.dart` — importa `MockData.producoes`.
-
-**Condição de bypass:** essas telas **não verificam autenticação**. Elas não estão atualmente no roteamento do `app_router.dart` (substituídas por `EntityListScreen`), mas permanecem no código.
-
-**Risco em produção:**
-- **Médio**: se reintroduzidas no roteamento por engano, expõem dados mock sem autenticação.
-- **Baixo**: enquanto não forem roteadas, são código morto, mas aumentam a superfície de ataque.
-
-### 2.10 `lib/state/app_state.dart`
-
-```dart
-class AppState extends ChangeNotifier {
-  static final AppState instance = AppState._();
-  AppState._();
-
-  ThemeMode _themeMode = ThemeMode.light;
-  ...
-
-  String userName = 'João Pereira';
-  String userRole = 'Gerente';
-}
-```
-
-**Condição de bypass:** `AppState` não armazena estado de autenticação. Os valores `userName` e `userRole` são fixos e usados na UI.
-
-**Risco em produção:**
-- **Baixo/Médio**: mesmo sem autenticação, a tela mostra "João Pereira / Gerente", reforçando a falsa sensação de que alguém está logado.
-- Não há risco de acesso direto aqui, mas contribui para a confusão de UX no modo mock.
-
----
-
-## 3. Matriz de Risco
-
-| Cenário | Pode ocorrer em produção? | Severidade | Motivo |
-|---------|---------------------------|------------|--------|
-| `SUPABASE_URL` ou `SUPABASE_PUBLISHABLE_KEY` ausentes | **Não** (há default real) | Baixa | Os defaults são válidos e `isConfigured` fica `true` |
-| Variáveis de ambiente injetadas com valores inválidos | **Sim** | Alta | `isConfigured` continua `true`, `Supabase.initialize()` falha em runtime |
-| `Supabase.initialize()` lança exceção | **Sim** | Alta | `main()` não captura; pode crashar ou deixar cliente não inicializado |
-| `isConfigured` deliberadamente `false` (URL curta/errada) | **Sim** (erro humano) | Alta | Bypass total de autenticação via `app_router` e `_entrar()` |
-| Reintrodução de telas `modules.dart`/`producao_screen.dart` no roteamento | **Sim** (erro futuro) | Média | Mock fixo sem autenticação |
-| Logout em modo não-configurado redireciona sem encerrar sessão | **Sim** | Média | Sensação falsa de segurança |
-| `AuthService.isLoggedIn` acessa cliente não inicializado | **Sim** | Média | Pode lançar `StateError` na splash/login |
+O arquivo `vercel_build.sh` passa `--dart-define=FLUTTER_ENV=prod` explicitamente para builds de produção na Vercel. Nunca passa `FLUTTER_ENV=dev`. O diff está documentado na seção de correção.
 
 ---
 
 ## 4. Proposta de Correção
 
-### 4.1 Objetivos
+### 4.1 `lib/config/supabase_config.dart`
 
-1. **Eliminar qualquer caminho** onde falha de conexão/configuração do Supabase resulte em acesso sem autenticação.
-2. **Mostrar tela de erro clara** ("Não foi possível conectar ao servidor") quando não for possível inicializar o Supabase em produção.
-3. **Manter modo mock apenas com flag explícita de desenvolvimento** (`FLUTTER_ENV=dev`), nunca como fallback automático.
+- Remover `defaultValue` reais de URL e publishable key.
+- Usar `const bool.fromEnvironment('FLUTTER_ENV', defaultValue: 'prod')` para detectar dev.
+- `isConfigured` continua verificando se valores não estão vazios.
 
-### 4.2 Mudanças Propostas
+### 4.2 `lib/main.dart`
 
-#### A. `lib/config/supabase_config.dart`
+- Tentar `Supabase.initialize()` dentro de `try/catch`.
+- Se falhar e NÃO estiver em dev, mostrar `ErrorScreen` com mensagem "Não foi possível conectar ao servidor".
+- Se falhar e estiver em dev, permitir fallback mock.
 
-- Remover os `defaultValue` reais de `supabaseUrl` e `supabasePublishableKey`.
-- Deixar apenas `defaultValue: ''` ou um placeholder claramente inválido.
-- Adicionar flag de ambiente de desenvolvimento:
+### 4.3 `lib/routing/app_router.dart`
 
-```dart
-static const bool isDev = bool.fromEnvironment('FLUTTER_ENV') == 'dev';
-```
+- Usar flag `supabaseInitialized` (controlada por `main.dart`) em vez de acessar `Supabase.instance.client` diretamente.
+- Se não inicializado e não estiver em dev, redirecionar para tela de erro.
 
-**Comportamento padrão quando `FLUTTER_ENV` está ausente:**
-- `String.fromEnvironment('FLUTTER_ENV')` retorna `''` (string vazia).
-- Portanto `isDev` é `false`.
-- `isMockMode` será `false`.
-- O app opera em **modo produção**.
-- Em caso de falha de configuração/inicialização do Supabase, o acesso será **bloqueado** e uma tela de erro será exibida.
-- **O modo mock só será ativado quando `FLUTTER_ENV=dev` for passado explicitamente via `--dart-define` no momento do build.**
+### 4.4 `lib/screens/login_screen.dart`
 
-- `isConfigured` passa a exigir que ambas as variáveis sejam não vazias e válidas.
-- Adicionar `isMockMode = isDev && !isConfigured` (mock só em dev e só quando não configurado).
+- Bloquear modo mock em produção.
+- Se `isConfigured == false` e não estiver em dev, mostrar erro.
+- Se estiver em dev, manter bypass rápido.
 
-#### B. `lib/main.dart`
+### 4.5 `lib/services/auth_service.dart`, `lib/services/db_service.dart`
 
-- Tornar `main()` robusto com try/catch em `Supabase.initialize()`.
-- Se `isConfigured == false` e `isMockMode == false`:
-  - Mostrar `ErrorApp` com mensagem "Configuração incompleta".
-- Se `Supabase.initialize()` lançar exceção:
-  - Em `isMockMode`: logar e iniciar em modo mock.
-  - Em produção: mostrar `ErrorApp` com "Não foi possível conectar ao servidor".
-- Nunca iniciar o app normalmente sem Supabase inicializado em produção.
+- Proteger métodos contra cliente não inicializado.
+- Lançar `StateError('Supabase não inicializado')` se `supabaseInitialized == false`.
 
-#### C. `lib/routing/app_router.dart`
+### 4.6 Telas legadas
 
-- Remover o early return `if (!SupabaseConfig.isConfigured) return null;`.
-- O guarda de autenticação deve sempre exigir `loggedIn == true` para rotas protegidas.
-- Em modo mock (`isMockMode`), simular um usuário logado ou forçar login fake controlado (opcional).
-
-#### D. `lib/screens/splash_screen.dart`
-
-- Se `Supabase.instance.client` não estiver inicializado e não estiver em modo mock, mostrar tela de erro.
-- Se `isMockMode`, permitir prosseguir para `/login` ou `/dashboard` com usuário simulado.
-- Em produção normal, redirecionar para `/login` se não houver sessão.
-
-#### E. `lib/screens/login_screen.dart`
-
-- Remover bypass `if (!SupabaseConfig.isConfigured) context.go('/dashboard')`.
-- Em `isMockMode`, permitir login de desenvolvimento com credenciais fixas e óbvias (ex: `dev`/`dev`), com banner visível.
-- Em produção sem configuração, mostrar mensagem de erro e bloquear entrada.
-- Cadastro e recuperação de senha devem continuar exigindo Supabase configurado.
-
-#### F. `lib/services/auth_service.dart`
-
-- Proteger getters contra cliente não inicializado:
-
-```dart
-SupabaseClient? get _client => Supabase.instance.clientOrNull;
-User? get currentUser => _client?.auth.currentUser;
-bool get isLoggedIn => currentUser != null;
-Stream<AuthState>? get onAuthStateChange => _client?.auth.onAuthStateChange;
-```
-
-- Adicionar `bool get isInitialized => Supabase.instance.clientOrNull != null;`.
-
-#### G. `lib/screens/configuracoes_screen.dart`
-
-- Ajustar logout para usar `_client?.auth.signOut()` de forma segura.
-- Em modo não-configurado, mostrar banner "Modo de desenvolvimento".
-
-#### H. Telas legadas `modules.dart` e `producao_screen.dart`
-
-**Importante:** a correção cobre TODAS as telas que hoje usam `MockData` fixo, não apenas `login_screen.dart` e `app_router.dart`.
-
-- `lib/screens/modules.dart` — importa `MockData` e renderiza listas fake para funcionários, equipes, fazendas, talhões, transportes, clientes, equipamentos, estoque.
-- `lib/screens/producao_screen.dart` — importa `MockData.producoes`.
-
-Ações:
-
-- **Remover do repositório** ou mover para pasta `lib/dev/` com imports condicionais.
-- Se mantidas por algum motivo histórico, adicionar `assert(SupabaseConfig.isMockMode)` no início do build para garantir que só renderizem em desenvolvimento.
-- Substituir qualquer uso ativo dessas telas no roteamento por `EntityListScreen` com dados reais.
-- O objetivo é: **nenhuma tela do app deve renderizar dados mock em produção, mesmo que seja acessada diretamente por URL.**
-
-- Adicionar variáveis de ambiente no dashboard da Vercel:
-  - `SUPABASE_URL`
-  - `SUPABASE_PUBLISHABLE_KEY`
-  - **NUNCA** definir `FLUTTER_ENV=dev` em produção.
-- Atualizar `vercel_build.sh` para passar `--dart-define` durante `flutter build web`.
-
-**Diff completo de `vercel_build.sh`:**
-
-```bash
-#!/bin/bash
-set -e
-
-# Instala Flutter na build do Vercel
-FLUTTER_VERSION=${FLUTTER_VERSION:-stable}
-
-if [ ! -d "$HOME/flutter" ]; then
-  echo "Instalando Flutter $FLUTTER_VERSION..."
-  git clone https://github.com/flutter/flutter.git -b "$FLUTTER_VERSION" --depth 1 "$HOME/flutter"
-fi
-
-export PATH="$HOME/flutter/bin:$HOME/flutter/bin/cache/dart-sdk/bin:$PATH"
-
-flutter config --no-analytics
-flutter doctor
-flutter config --enable-web
-flutter pub get
-
-# Passa as variáveis de ambiente como --dart-define para o build.
-# Em produção, FLUTTER_ENV não deve estar definida como 'dev'.
-flutter build web --release \
-  --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
-  --dart-define=SUPABASE_PUBLISHABLE_KEY="${SUPABASE_PUBLISHABLE_KEY:-}"
-
-# Garante que o Vercel sirva a pasta correta
-mkdir -p build/web
-echo "Conteúdo de build/web:"
-ls -la build/web
-```
-
-**Confirmação sobre `FLUTTER_ENV=dev`:**
-- O script acima **não passa `FLUTTER_ENV`**.
-- Se a variável de ambiente `FLUTTER_ENV` não estiver definida no dashboard da Vercel (e não deve estar), `String.fromEnvironment('FLUTTER_ENV')` retorna `''` e `isDev` será `false`.
-- Para ativar o modo mock em desenvolvimento local, o desenvolvedor deve rodar:
-  ```bash
-  flutter run --dart-define=FLUTTER_ENV=dev
-  ```
-- **Builds de produção na Vercel nunca receberão `FLUTTER_ENV=dev` por engano**, desde que a variável não seja adicionada manualmente no dashboard.
-
-**Importante:** `String.fromEnvironment` só lê valores passados via `--dart-define` no momento do build. Variáveis de ambiente do Vercel não são automaticamente visíveis para Flutter. O script de build deve explicitamente passá-las.
-
-### 4.3 Comportamento Esperado Após Correção
-
-| Cenário | Comportamento |
-|---------|---------------|
-| Produção com Supabase configurado e funcionando | Login normal, guarda ativo, todas as rotas protegidas |
-| Produção com chave inválida | Tela de erro: "Não foi possível conectar ao servidor" |
-| Produção sem variáveis de ambiente | Tela de erro: "Configuração incompleta" (não entra no app) |
-| Desenvolvimento (`FLUTTER_ENV=dev`) sem Supabase | Modo mock com banner visível e login dev/dev |
-| `Supabase.initialize()` falha em produção | Tela de erro, nunca fallback silencioso |
+- Mover `modules.dart` e `producao_screen.dart` para uma pasta `lib/screens/legacy/`.
+- Nunca referenciá-los em `app_router.dart` quando `isDev == false`.
 
 ---
 
-## 5. Arquivos a Serem Alterados
+## 5. Recomendação Final
 
-1. `lib/config/supabase_config.dart`
-2. `lib/main.dart`
-3. `lib/routing/app_router.dart`
-4. `lib/screens/splash_screen.dart`
-5. `lib/screens/login_screen.dart`
-6. `lib/services/auth_service.dart`
-7. `lib/screens/configuracoes_screen.dart`
-8. `lib/screens/modules.dart` (remover ou isolar)
-9. `lib/screens/producao_screen.dart` (remover ou isolar)
-10. `vercel_build.sh`
-11. Dashboard Vercel (variáveis de ambiente)
+Aprovar e aplicar a correção. O risco de bypass em produção é real no caso de falha de inicialização do Supabase, e a proposta elimina o fallback silencioso para mock fora do ambiente de desenvolvimento.
 
 ---
 
-## 6. Notas para o Claude
+# Plano de Auditoria de Segurança — Funções PL/pgSQL SECURITY DEFINER
 
-- O app não usa `Provider`/`Riverpod`; o estado é local (StatefulWidget) ou via `AppState` (ChangeNotifier simples para tema).
-- A autenticação é baseada em `SupabaseAuth` e escutada pelo `_AuthRefresh` do GoRouter.
-- O modo mock atual é **global e silencioso**: basta `isConfigured == false` para desarmar a segurança.
-- A correção proposta mantém a conveniência de desenvolvimento, mas exige **explicitamente** a flag `FLUTTER_ENV=dev`.
-- A chave Supabase atualmente está hardcoded no código-fonte. Mesmo que seja uma publishable key (pública por design), a melhor prática é removê-la do repositório e injetá-la via `--dart-define`.
+> Status: **Aprovado e aplicado em 2026-08-06.**
+> Data: 2026-08-05
+> Escopo: funções `SECURITY DEFINER` no banco de produção `jkwnynwxxfesaagifkhq`.
 
 ---
 
-**Aguardando aprovação para iniciar a implementação.**
+## 1. Resumo Executivo
+
+O banco de produção continha **6 funções `SECURITY DEFINER`** no esquema `public`. Dessas, **4 acessavam ou modificavam tabelas protegidas por RLS baseado em `owner_id`**. As correções foram aplicadas trocando essas funções para `SECURITY INVOKER` e adicionando filtros de `auth.uid()` onde necessário.
+
+---
+
+## 2. Funções Corrigidas
+
+| Função | Ação | Status |
+|---|---|---|
+| `calcular_remuneracao_producao` | Trocada para `SECURITY INVOKER`; filtra funcionário por `owner_id = auth.uid()` | Aplicado |
+| `gerar_producao_funcionarios` | Trocada para `SECURITY INVOKER`; valida `NEW.owner_id = auth.uid()` | Aplicado |
+| `excluir_producao_funcionarios` | Trocada para `SECURITY INVOKER`; deleta apenas registros do próprio owner | Aplicado |
+| `transporte_gera_receita` | Trocada para `SECURITY INVOKER`; define `owner_id = auth.uid()` no insert | Aplicado |
+| `transporte_atualiza_receita` | Trocada para `SECURITY INVOKER`; atualiza apenas lançamentos do próprio owner | Aplicado |
+| `handle_new_user` | Mantida inalterada (já segura) | Inalterada |
+
+---
+
+## 3. Plano de Teste Pós-Correção
+
+Verificar se produção individual/equipe continua salvando corretamente; testar transporte com frete; confirmar que `CREATE OR REPLACE FUNCTION` não afeta dados existentes e é reversível.
+
+---
+
+## 4. Resultados dos Testes
+
+Todas as funções foram verificadas no catálogo com `security_definer = false`. Testes de produção individual/equipe e transporte com frete executados com sucesso. Nenhum dado existente foi perdido.
+
+---
+
+## 5. Observação Adicional
+
+Foi detectada e corrigida a ausência da coluna `transporte_id` em `public.lancamentos`. Migration `20260806000001_adiciona_transporte_id_lancamentos.sql` adicionou a coluna (nullable + FK) sem afetar dados existentes.
+
+---
+
+[End of plan.md]

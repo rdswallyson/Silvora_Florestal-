@@ -209,8 +209,8 @@ As triggers `transporte_gera_receita` e `transporte_atualiza_receita` continuam 
 ## 9. Riscos e Considerações
 
 - **Sobreposição de vigências:** a migration deve incluir validação ou trigger para impedir duas vigências abertas (`vigente_ate IS NULL`) para o mesmo cliente.
-- **Cliente sem preço cadastrado:** se não houver preço vigente, o frete continua sendo preenchido manualmente.
-- **Volume zero ou nulo:** se `volume_m3` for zero, o frete permanece zero ou manual.
+- **Cliente sem preço cadastrado:** se não houver preço vigente para a data do transporte, o campo `frete` fica vazio (ou zero) e editável para o usuário preencher manualmente. O cadastro do transporte **não é bloqueado** e não exibe erro ao usuário. O sistema apenas não preenche o frete automaticamente.
+- **Volume zero ou nulo:** se `volume_m3` for zero ou nulo, o frete permanece zero ou manual.
 - **Performance:** a consulta de preço vigente é simples (índice em `cliente_id, vigente_desde DESC`) e não deve impactar a usabilidade.
 
 ---

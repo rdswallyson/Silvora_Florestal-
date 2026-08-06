@@ -104,7 +104,13 @@ class EntityDetailScreen extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     color: BrandColors.forest)),
             const SizedBox(height: 12),
-            ...def.fields.map((f) {
+            ...def.fields.where((f) {
+              if (def.table != 'producao') return true;
+              final tipo = item['tipo_producao']?.toString();
+              if (f.key == 'funcionario_id') return tipo == 'Individual';
+              if (f.key == 'equipe_id') return tipo == 'Equipe';
+              return true;
+            }).map((f) {
               final value = _fieldValue(f);
               return _DetailRow(label: f.label, value: value);
             }),
@@ -396,9 +402,9 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
           ),
         ),
         const SizedBox(height: 16),
-        if (equipeNome.isNotEmpty)
+        if (item['tipo_producao']?.toString() == 'Equipe' && equipeNome.isNotEmpty)
           _DetailRow(label: 'Equipe', value: equipeNome),
-        if (funcNome.isNotEmpty)
+        if (item['tipo_producao']?.toString() == 'Individual' && funcNome.isNotEmpty)
           _DetailRow(label: 'Funcionário', value: funcNome),
         if (talhaoCod.isNotEmpty)
           _DetailRow(label: 'Talhão', value: talhaoCod),

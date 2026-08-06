@@ -215,14 +215,39 @@ As triggers `transporte_gera_receita` e `transporte_atualiza_receita` continuam 
 
 ---
 
-## 10. Decisões Pendentes
+## 10. Decisões Definidas
 
-Antes de aprovar, o usuário deve decidir:
+As decisões pendentes foram respondidas pelo usuário:
 
-1. Quer mesmo manter o campo `clientes.valor_m3` como atalho, ou prefere gerenciar preços apenas pela tabela `cliente_precos`?
-2. Ao editar cliente e mudar o preço, quer que o sistema **feche automaticamente** a vigência anterior, ou prefere inserir novas vigências manualmente com datas específicas?
-3. Quer exibir o histórico de preços na tela de cliente?
-4. O preço deve ser buscado pela data do transporte ou sempre pela data atual?
+1. **Campo `clientes.valor_m3`:** NÃO será criado. O preço será gerenciado exclusivamente pela tabela `cliente_precos`, buscando o valor vigente quando necessário.
+
+2. **Fechamento de vigência anterior:** Automático. Ao cadastrar um novo preço, o sistema define `vigente_ate` do registro anterior como a data do novo cadastro.
+
+3. **Histórico de preços:** Sim, exibido na tela de detalhe do cliente, em lista simples (preço, vigente de, vigente até).
+
+4. **Busca do preço vigente:** Pela **data do transporte**, não pela data atual. Isso garante que registros retroativos usem o preço correto daquele dia.
+
+---
+
+## 11. Ajustes no Plano Original
+
+Com base nas decisões acima, as seguintes correções se aplicam:
+
+- **Remover a seção 4.2** (campo `clientes.valor_m3`). Não haverá atalho.
+- **Tela de cadastro de cliente:** ao salvar, ao invés de atualizar `clientes.valor_m3`, o sistema:
+  - Busca o preço vigente atual (último com `vigente_ate IS NULL`).
+  - Se o novo valor for diferente, preenche `vigente_ate` do registro atual com `current_date`.
+  - Insere novo registro em `cliente_precos` com `valor_m3 = novo valor` e `vigente_desde = current_date`.
+- **Tela de transporte:** ao selecionar cliente e informar `data` e `volume_m3`, o sistema busca o preço vigente na data do transporte:
+  ```sql
+  select valor_m3 from cliente_precos
+  where cliente_id = :cliente_id
+    and vigente_desde <= :data_transporte
+    and (vigente_ate is null or vigente_ate >= :data_transporte)
+  order by vigente_desde desc
+  limit 1;
+  ```
+- **Detalhe do cliente:** adicionar lista de histórico de preços abaixo das informações principais.
 
 ---
 

@@ -63,16 +63,20 @@ class _EntityListScreenState extends State<EntityListScreen> {
   }
 
   Future<void> _openForm([Map<String, dynamic>? existing]) async {
-    if (def.table == 'producao' && existing == null) {
+    if (def.table == 'producao') {
       final saved = await Navigator.push<bool>(
         context,
-        MaterialPageRoute(builder: (_) => const ProducaoFormScreen()),
+        MaterialPageRoute(
+          builder: (_) => ProducaoFormScreen(existing: existing),
+        ),
       );
       if (saved == true && mounted) {
         _reload();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Produção cadastrada com sucesso.'),
+          SnackBar(
+            content: Text(existing == null
+                ? 'Produção cadastrada com sucesso.'
+                : 'Alterações salvas.'),
             behavior: SnackBarBehavior.floating,
           ),
         );

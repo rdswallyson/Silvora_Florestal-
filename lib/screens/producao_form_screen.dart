@@ -10,7 +10,8 @@ import '../widgets/common.dart';
 /// Não pergunta o tipo de pagamento. Calcula automaticamente conforme cadastro
 /// de cada funcionário.
 class ProducaoFormScreen extends StatefulWidget {
-  const ProducaoFormScreen({super.key});
+  final Map<String, dynamic>? existing;
+  const ProducaoFormScreen({super.key, this.existing});
 
   @override
   State<ProducaoFormScreen> createState() => _ProducaoFormScreenState();
@@ -24,6 +25,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
   String? _funcionarioId;
   String? _equipeId;
   String? _talhaoId;
+  String? _producaoId;
   DateTime? _data;
   final _volumeCtrl = TextEditingController(text: '0');
   final _arvoresCtrl = TextEditingController(text: '0');
@@ -38,11 +40,85 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
   bool _loading = false;
   bool _saving = false;
 
+  bool get _isEditing => widget.existing != null;
+
   @override
   void initState() {
     super.initState();
     _data = DateTime.now();
-    _loadOptions();
+    _loadOptions().then((_) => _carregarEdicao());
+  }
+
+  Future<void> _carregarEdicao() async {
+    final existing = widget.existing;
+    if (existing == null) return;
+
+    setState(() => _loading = true);
+    try {
+      _producaoId = existing['id']?.toString();
+      _tipoProducao = existing['tipo_producao']?.toString() ?? 'Individual';
+      _funcionarioId = existing['funcionario_id']?.toString();
+      _equipeId = existing['equipe_id']?.toString();
+      _talhaoId = existing['talhao_id']?.toString();
+
+      final dataRaw = existing['data']?.toString();
+      if (dataRaw != null && dataRaw.isNotEmpty) {
+        _data = DateTime.tryParse(dataRaw);
+      }
+
+      _volumeCtrl.text = _fmtNumber(existing['volume_total']);
+      _arvoresCtrl.text = _fmtInt(existing['total_arvores']);
+      _obsCtrl.text = existing['observacoes']?.toString() ?? '';
+
+      if (_tipoProducao == 'Equipe' && _equipeId != null) {
+        await _carregarParticipantes();
+        await _marcarParticipantesExistentes();
+      }
+    } catch (e) {
+      debugPrint('Erro ao carregar edição: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _fmtNumber(dynamic v) {
+    if (v == null) return '0';
+    final n = v is num ? v : num.tryParse(v.toString());
+    if (n == null) return '0';
+    return n.toStringAsFixed(n.truncateToDouble() == n ? 0 : 2);
+  }
+
+  String _fmtInt(dynamic v) {
+    if (v == null) return '0';
+    final n = v is num ? v.toInt() : int.tryParse(v.toString());
+    return '${n ?? 0}';
+  }
+
+  Future<void> _marcarParticipantesExistentes() async {
+    if (_producaoId == null) return;
+    try {
+      final res = await Db.instance.client
+          .from('producao_funcionarios')
+          .select('funcionario_id, participou')
+          .eq('producao_id', _producaoId!);
+
+      final existentes = (res as List).cast<Map<String, dynamic>>();
+      final ids = existentes
+          .where((r) => r['participou'] == true)
+          .map((r) => r['funcionario_id'].toString())
+          .toSet();
+
+      if (mounted) {
+        setState(() {
+          for (final p in _participantes) {
+            final f = p['funcionario'] as Map<String, dynamic>;
+            p['selecionado'] = ids.contains(f['id'].toString());
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Erro ao marcar participantes existentes: $e');
+    }
   }
 
   Future<void> _loadOptions() async {
@@ -178,21 +254,40 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
         participantes = _participantes;
       }
 
-      await ProducaoCalculoService.salvarProducao(
-        tipoProducao: _tipoProducao,
-        funcionarioId: _tipoProducao == 'Individual' ? _funcionarioId : null,
-        equipeId: _tipoProducao == 'Equipe' ? _equipeId : null,
-        talhaoId: _talhaoId,
-        data: _data,
-        volume: _volume,
-        arvores: _arvores,
-        observacoes: _obsCtrl.text,
-        participantes: participantes,
-      );
+      if (_isEditing && _producaoId != null) {
+        await ProducaoCalculoService.atualizarProducao(
+          producaoId: _producaoId!,
+          tipoProducao: _tipoProducao,
+          funcionarioId: _tipoProducao == 'Individual' ? _funcionarioId : null,
+          equipeId: _tipoProducao == 'Equipe' ? _equipeId : null,
+          talhaoId: _talhaoId,
+          data: _data,
+          volume: _volume,
+          arvores: _arvores,
+          observacoes: _obsCtrl.text,
+          participantes: participantes,
+        );
+      } else {
+        await ProducaoCalculoService.salvarProducao(
+          tipoProducao: _tipoProducao,
+          funcionarioId: _tipoProducao == 'Individual' ? _funcionarioId : null,
+          equipeId: _tipoProducao == 'Equipe' ? _equipeId : null,
+          talhaoId: _talhaoId,
+          data: _data,
+          volume: _volume,
+          arvores: _arvores,
+          observacoes: _obsCtrl.text,
+          participantes: participantes,
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Produção salva com sucesso.')),
+          SnackBar(
+            content: Text(_isEditing
+                ? 'Produção atualizada com sucesso.'
+                : 'Produção salva com sucesso.'),
+          ),
         );
         Navigator.pop(context, true);
       }
@@ -214,7 +309,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nova Produção'),
+        title: Text(_isEditing ? 'Editar Produção' : 'Nova Produção'),
         centerTitle: true,
       ),
       body: _loading && _funcionarios.isEmpty

@@ -176,6 +176,63 @@ class ProducaoCalculoService {
     return producaoId;
   }
 
+  /// Atualiza o registro de produção e recria os participantes calculados.
+  /// Retorna o ID da produção atualizada.
+  static Future<String> atualizarProducao({
+    required String producaoId,
+    required String tipoProducao,
+    required String? funcionarioId,
+    required String? equipeId,
+    required String? talhaoId,
+    required DateTime? data,
+    required double volume,
+    required int arvores,
+    required String observacoes,
+    required List<Map<String, dynamic>> participantes,
+  }) async {
+    // 1. Atualiza produção principal
+    await Db.update('producao', producaoId, {
+      'tipo_producao': tipoProducao,
+      'funcionario_id': funcionarioId,
+      'equipe_id': equipeId,
+      'talhao_id': talhaoId,
+      'data': data?.toIso8601String().split('T').first,
+      'volume_total': volume,
+      'total_arvores': arvores,
+      'observacoes': observacoes,
+    });
+
+    // 2. Remove participantes antigos
+    await Db.instance.client
+        .from('producao_funcionarios')
+        .delete()
+        .eq('producao_id', producaoId);
+
+    // 3. Recria participantes calculados
+    for (final p in participantes) {
+      final funcionario = p['funcionario'] as Map<String, dynamic>;
+      final selecionado = p['selecionado'] as bool;
+
+      if (!selecionado) continue;
+
+      final calculo = calcular(
+        funcionario: funcionario,
+        volume: volume,
+        arvores: arvores,
+        horas: _parseDouble(p['horas'] ?? 1),
+      );
+
+      await Db.insert('producao_funcionarios', {
+        'producao_id': producaoId,
+        'funcionario_id': funcionario['id'].toString(),
+        'participou': true,
+        ...calculo.toJson(),
+      });
+    }
+
+    return producaoId;
+  }
+
   static double _parseDouble(dynamic value) {
     if (value == null) return 0;
     if (value is num) return value.toDouble();

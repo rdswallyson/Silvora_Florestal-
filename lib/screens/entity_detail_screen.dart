@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/entities.dart';
 import '../services/db_service.dart';
+import '../services/cliente_preco_service.dart';
 import '../theme/app_theme.dart';
 
 /// Tela de detalhes de um registro. Para Funcionário, exibe produção,
@@ -121,6 +122,8 @@ class EntityDetailScreen extends StatelessWidget {
               _ProducaoDetails(item: item),
             if (def.table == 'equipes')
               _EquipeDetails(equipeId: '${item['id']}'),
+            if (def.table == 'clientes')
+              _ClienteDetails(clienteId: '${item['id']}'),
             const SizedBox(height: 80),
           ],
         ),
@@ -526,6 +529,91 @@ class _EquipeDetails extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _ClienteDetails extends StatefulWidget {
+  final String clienteId;
+  const _ClienteDetails({required this.clienteId});
+
+  @override
+  State<_ClienteDetails> createState() => _ClienteDetailsState();
+}
+
+class _ClienteDetailsState extends State<_ClienteDetails> {
+  List<Map<String, dynamic>> _historico = [];
+  bool _carregando = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregar();
+  }
+
+  Future<void> _carregar() async {
+    try {
+      final lista = await ClientePrecoService.listarHistorico(widget.clienteId);
+      if (mounted) setState(() { _historico = lista; _carregando = false; });
+    } catch (_) {
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_carregando) {
+      return const Center(child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: CircularProgressIndicator(),
+      ));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('HISTÓRICO DE PREÇOS',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: BrandColors.forest)),
+        const SizedBox(height: 12),
+        if (_historico.isEmpty)
+          const Text('Nenhum preço cadastrado para este cliente.')
+        else
+          ..._historico.map((p) {
+            final vigenteDesde = p['vigente_desde']?.toString() ?? '';
+            final vigenteAte = p['vigente_ate']?.toString();
+            final atual = vigenteAte == null;
+            final valor = _d(p, 'valor_m3');
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              color: atual ? BrandColors.forest.withValues(alpha: 0.08) : null,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('R\$ ${valor.toStringAsFixed(2)}/m³',
+                              style: const TextStyle(fontWeight: FontWeight.w800)),
+                          Text(
+                            'Vigente de: $vigenteDesde'
+                            '${vigenteAte != null ? ' até: $vigenteAte' : ' (atualmente vigente)'}',
+                            style: const TextStyle(color: Colors.grey, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (atual)
+                      const Icon(Icons.check_circle, color: BrandColors.success, size: 20),
+                  ],
+                ),
+              ),
+            );
+          }),
+      ],
     );
   }
 }

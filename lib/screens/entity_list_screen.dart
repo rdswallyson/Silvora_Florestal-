@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../data/entities.dart';
 import '../services/db_service.dart';
+import '../services/cliente_preco_service.dart';
 import '../theme/app_theme.dart';
 import 'entity_detail_screen.dart';
 
@@ -691,6 +692,14 @@ class _EntityFormState extends State<_EntityForm> {
           childIds: _multiValues[f.key]!.toList(),
         );
       }
+      // Cliente: salva/atualiza preço vigente quando o usuário informou o campo
+      if (def.table == 'clientes' && _ctrls['valor_m3'] != null) {
+        final raw = _ctrls['valor_m3']!.text.trim();
+        final novoValor = raw.isEmpty ? null : double.tryParse(raw.replaceAll(',', '.'));
+        if (novoValor != null) {
+          await ClientePrecoService.salvarPreco(id, novoValor);
+        }
+      }
       // Produção: obsoleto — nova tela ProducaoFormScreen trata o cálculo individual.
       // Mantido apenas para edição de registros antigos, sem replicação.
       if (mounted) Navigator.pop(context, true);
@@ -823,6 +832,11 @@ class _EntityFormState extends State<_EntityForm> {
             labelText: f.label,
             suffixText: f.suffix,
           ),
+          onChanged: (_) {
+            if (def.table == 'transporte' && f.key == 'volume_m3') {
+              _atualizarFreteAutomatico();
+            }
+          },
           validator: (v) => f.required && (v == null || v.trim().isEmpty)
               ? 'Campo obrigatório'
               : null,
@@ -855,13 +869,21 @@ class _EntityFormState extends State<_EntityForm> {
                 );
                 if (picked != null) {
                   ctrl.text = DateFormat('dd/MM/yyyy').format(picked);
+                  if (def.table == 'transporte' && f.key == 'data') {
+                    _atualizarFreteAutomatico();
+                  }
                 }
               },
             ),
             IconButton(
               icon: const Icon(Icons.today, size: 20),
               tooltip: 'Hoje',
-              onPressed: () => ctrl.text = _today,
+              onPressed: () {
+                ctrl.text = _today;
+                if (def.table == 'transporte' && f.key == 'data') {
+                  _atualizarFreteAutomatico();
+                }
+              },
             ),
           ],
         ),
@@ -908,14 +930,53 @@ class _EntityFormState extends State<_EntityForm> {
           f.required && (v == null) ? 'Selecione um(a) ${f.label}' : null,
       onChanged: (v) {
         setState(() => _refValues[f.key] = v);
-        if (def.table == 'producao' && f.key == 'funcionario_id' && v != null) {
-          // Obsoleto: a nova tela ProducaoFormScreen trata o cálculo.
-        }
-        if (def.table == 'producao' && f.key == 'equipe_id' && v != null) {
-          // Obsoleto: a nova tela ProducaoFormScreen trata o cálculo.
+        if (def.table == 'transporte' && f.key == 'cliente_id') {
+          _atualizarFreteAutomatico();
         }
       },
     );
+  }
+
+  Future<void> _atualizarFreteAutomatico() async {
+    if (def.table != 'transporte') return;
+
+    final clienteId = _refValues['cliente_id'];
+    if (clienteId == null || clienteId.isEmpty) return;
+
+    final dataCtrl = _ctrls['data'];
+    final volumeCtrl = _ctrls['volume_m3'];
+    final freteCtrl = _ctrls['frete'];
+    if (dataCtrl == null || volumeCtrl == null || freteCtrl == null) return;
+
+    final data = _parseDate(dataCtrl.text);
+    if (data == null) return;
+
+    final volume = double.tryParse(volumeCtrl.text.replaceAll(',', '.'));
+    if (volume == null || volume <= 0) return;
+
+    final preco = await ClientePrecoService.buscarPrecoVigente(clienteId, data);
+    if (preco == null) return;
+
+    final calculado = preco * volume;
+    if (freteCtrl.text.trim().isEmpty ||
+        double.tryParse(freteCtrl.text.replaceAll(',', '.')) == 0) {
+      freteCtrl.text = calculado.toStringAsFixed(2);
+    }
+  }
+
+  DateTime? _parseDate(String text) {
+    try {
+      final partes = text.split('/');
+      if (partes.length == 3) {
+        final dia = int.parse(partes[0]);
+        final mes = int.parse(partes[1]);
+        final ano = int.parse(partes[2]);
+        return DateTime(ano, mes, dia);
+      }
+      return DateTime.tryParse(text);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _aplicarFormaPagamentoDoFuncionario(String funcId) async {

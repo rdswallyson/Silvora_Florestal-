@@ -293,6 +293,7 @@ final Map<String, EntityDef> kEntities = {
     table: 'clientes',
     noun: 'cliente',
     icon: Icons.handshake_outlined,
+    selectQuery: '*, cliente_precos(*)',
     fields: const [
       FieldDef('nome', 'Nome / razão social', required: true),
       FieldDef('tipo', 'Tipo', type: FieldType.select, options: [
@@ -303,6 +304,8 @@ final Map<String, EntityDef> kEntities = {
         'Produtor',
       ]),
       FieldDef('cidade', 'Cidade/UF'),
+      FieldDef('valor_m3', 'Preço por m³ (R\$)',
+          type: FieldType.decimal, suffix: 'R\$/m³'),
       FieldDef('pendencia', 'Pendência (R\$)',
           type: FieldType.decimal, suffix: 'R\$'),
     ],
@@ -310,10 +313,24 @@ final Map<String, EntityDef> kEntities = {
     subtitleOf: (m) =>
         [_s(m, 'tipo'), _s(m, 'cidade')].where((e) => e.isNotEmpty).join(' • '),
     leadingOf: (m) => _iconAvatar(Icons.handshake, BrandColors.forest),
-    trailingOf: (m) => _d(m, 'pendencia') > 0
-        ? StatusChip('Pend. R\$ ${_d(m, 'pendencia').toStringAsFixed(0)}',
-            BrandColors.danger)
-        : const StatusChip('Em dia', BrandColors.success),
+    trailingOf: (m) {
+      final precos = m['cliente_precos'];
+      if (precos is List && precos.isNotEmpty) {
+        final vigente = precos.firstWhere(
+          (p) => p['vigente_ate'] == null,
+          orElse: () => precos.first,
+        );
+        final preco = _d(vigente, 'valor_m3');
+        if (preco > 0) {
+          return Text('R\$ ${preco.toStringAsFixed(2)}/m³',
+              style: const TextStyle(fontWeight: FontWeight.bold));
+        }
+      }
+      return _d(m, 'pendencia') > 0
+          ? StatusChip('Pend. R\$ ${_d(m, 'pendencia').toStringAsFixed(0)}',
+              BrandColors.danger)
+          : const StatusChip('Em dia', BrandColors.success);
+    },
   ),
   'veiculos': EntityDef(
     table: 'veiculos',

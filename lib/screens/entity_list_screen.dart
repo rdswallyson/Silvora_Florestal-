@@ -674,6 +674,11 @@ class _EntityFormState extends State<_EntityForm> {
       }
       data[f.key] = value;
     }
+    // O campo valor_m3 do cliente é virtual: persistido em cliente_precos,
+    // nunca na tabela clientes.
+    if (def.table == 'clientes') {
+      data.remove('valor_m3');
+    }
     try {
       String id;
       if (widget.existing == null) {

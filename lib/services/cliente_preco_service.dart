@@ -19,19 +19,23 @@ class ClientePrecoService {
     try {
       final res = await _client
           .from('cliente_precos')
-          .select('valor_m3')
+          .select('valor_m3, vigente_desde, vigente_ate')
           .eq('cliente_id', clienteId)
-          .lte('vigente_desde', data.toIso8601String().split('T').first)
-          .or('vigente_ate.is.null,vigente_ate.gte.${data.toIso8601String().split('T').first}')
-          .order('vigente_desde', ascending: false)
-          .limit(1);
+          .order('vigente_desde', ascending: false);
 
-      final lista = res as List<dynamic>?;
-      if (lista == null || lista.isEmpty) return null;
+      final lista = (res as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
+      final dataStr = data.toIso8601String().split('T').first;
 
-      final valor = lista.first['valor_m3'];
-      if (valor == null) return null;
-      return (valor is num) ? valor.toDouble() : double.tryParse(valor.toString());
+      for (final item in lista) {
+        final desde = item['vigente_desde']?.toString() ?? '';
+        final ate = item['vigente_ate']?.toString();
+        if (desde.compareTo(dataStr) > 0) continue;
+        if (ate != null && ate.isNotEmpty && ate.compareTo(dataStr) < 0) continue;
+        final valor = item['valor_m3'];
+        if (valor == null) continue;
+        return (valor is num) ? valor.toDouble() : double.tryParse(valor.toString());
+      }
+      return null;
     } catch (e) {
       debugPrint('Erro ao buscar preço vigente: $e');
       return null;

@@ -975,8 +975,8 @@ class _EntityFormState extends State<_EntityForm> {
     final freteCtrl = _ctrls['frete'];
     if (dataCtrl == null || volumeCtrl == null || freteCtrl == null) return;
 
-    final data = _parseDate(dataCtrl.text);
-    if (data == null) return;
+    DateTime? data = _parseDate(dataCtrl.text);
+    data ??= DateTime.now();
 
     final volume = double.tryParse(volumeCtrl.text.replaceAll(',', '.'));
     if (volume == null || volume <= 0) return;
@@ -985,8 +985,8 @@ class _EntityFormState extends State<_EntityForm> {
     if (preco == null) return;
 
     final calculado = preco * volume;
-    if (freteCtrl.text.trim().isEmpty ||
-        double.tryParse(freteCtrl.text.replaceAll(',', '.')) == 0) {
+    final freteAtual = double.tryParse(freteCtrl.text.replaceAll(',', '.'));
+    if (freteCtrl.text.trim().isEmpty || freteAtual == null || freteAtual == 0) {
       freteCtrl.text = calculado.toStringAsFixed(2);
     }
   }

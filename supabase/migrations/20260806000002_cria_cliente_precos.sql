@@ -45,7 +45,7 @@ BEGIN
   SET vigente_ate = NEW.vigente_desde
   WHERE cliente_id = NEW.cliente_id
     AND id != NEW.id
-    AND owner_id = auth.uid()
+    AND owner_id = NEW.owner_id
     AND vigente_ate IS NULL;
 
   RETURN NEW;

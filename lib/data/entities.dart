@@ -676,7 +676,18 @@ final Map<String, EntityDef> kEntities = {
           refLabelOf: _lblNome),
       const FieldDef('volume_m3', 'Volume (m³)',
           type: FieldType.decimal, suffix: 'm³'),
-      const FieldDef('frete', 'Valor do frete (R\$)',
+      const FieldDef('frete', 'Valor da carga (R\$)',
+          type: FieldType.decimal, suffix: 'R\$'),
+      const FieldDef('tipo_frete', 'Tipo de frete',
+          type: FieldType.select, options: [
+        'km',
+        'combinado',
+      ]),
+      const FieldDef('distancia_km', 'Distância (km)',
+          type: FieldType.decimal, suffix: 'km'),
+      const FieldDef('valor_km', 'Valor por km (R\$)',
+          type: FieldType.decimal, suffix: 'R\$/km'),
+      const FieldDef('valor_combinado', 'Valor combinado (R\$)',
           type: FieldType.decimal, suffix: 'R\$'),
       const FieldDef('data', 'Data'),
     ],
@@ -695,9 +706,19 @@ final Map<String, EntityDef> kEntities = {
       return [rota, l2].where((e) => e.isNotEmpty).join('\n');
     },
     leadingOf: (m) => _iconAvatar(Icons.route, BrandColors.info),
-    trailingOf: (m) => Text('R\$ ${_d(m, 'frete').toStringAsFixed(0)}',
-        style: const TextStyle(
-            fontWeight: FontWeight.w800, color: BrandColors.forest)),
+    trailingOf: (m) {
+      final carga = _d(m, 'frete');
+      final tipo = m['tipo_frete']?.toString();
+      final frete = tipo == 'km'
+          ? _d(m, 'distancia_km') * _d(m, 'valor_km')
+          : tipo == 'combinado'
+              ? _d(m, 'valor_combinado')
+              : 0.0;
+      final total = carga + frete;
+      return Text('R\$ ${total.toStringAsFixed(0)}',
+          style: const TextStyle(
+              fontWeight: FontWeight.w800, color: BrandColors.forest));
+    },
   ),
   'lancamentos': EntityDef(
     table: 'lancamentos',

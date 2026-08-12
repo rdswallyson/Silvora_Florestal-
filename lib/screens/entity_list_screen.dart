@@ -804,6 +804,7 @@ class _EntityFormState extends State<_EntityForm> {
                 )
               else ...[
                 ...def.fields.map(_buildField),
+                if (def.table == 'transporte') _buildTransporteResumo(),
                 const SizedBox(height: 8),
                 FilledButton.icon(
                   onPressed: _saving ? null : _save,
@@ -828,16 +829,30 @@ class _EntityFormState extends State<_EntityForm> {
     Widget field;
     switch (f.type) {
       case FieldType.select:
-        field = DropdownButtonFormField<String>(
+        final isTipoFrete = def.table == 'transporte' && f.key == 'tipo_frete';
+        field = DropdownButtonFormField<String?>(
           initialValue: _selects[f.key],
           isExpanded: true,
           decoration: InputDecoration(labelText: f.label),
-          items: f.options
-              .map((o) => DropdownMenuItem(value: o, child: Text(o)))
-              .toList(),
+          items: isTipoFrete
+              ? [
+                  const DropdownMenuItem<String?>(value: null, child: Text('— sem frete separado —')),
+                  const DropdownMenuItem<String?>(value: 'km', child: Text('Por quilômetro')),
+                  const DropdownMenuItem<String?>(value: 'combinado', child: Text('Valor combinado')),
+                ]
+              : [
+                  if (!f.required)
+                    const DropdownMenuItem<String?>(value: null, child: Text('— nenhum —')),
+                  ...f.options.map((o) => DropdownMenuItem(value: o, child: Text(o))),
+                ],
           validator: (v) =>
               f.required && (v == null) ? 'Campo obrigatório' : null,
-          onChanged: (v) => setState(() => _selects[f.key] = v),
+          onChanged: (v) {
+            setState(() => _selects[f.key] = v);
+            if (isTipoFrete) {
+              _atualizarResumoFrete();
+            }
+          },
         );
         break;
       case FieldType.reference:
@@ -860,8 +875,13 @@ class _EntityFormState extends State<_EntityForm> {
             suffixText: f.suffix,
           ),
           onChanged: (_) {
-            if (def.table == 'transporte' && f.key == 'volume_m3') {
-              _atualizarFreteAutomatico();
+            if (def.table == 'transporte') {
+              if (f.key == 'volume_m3') {
+                _atualizarCargaAutomatica();
+              }
+              if (['distancia_km', 'valor_km', 'valor_combinado'].contains(f.key)) {
+                _atualizarResumoFrete();
+              }
             }
           },
           validator: (v) => f.required && (v == null || v.trim().isEmpty)
@@ -897,7 +917,7 @@ class _EntityFormState extends State<_EntityForm> {
                 if (picked != null) {
                   ctrl.text = DateFormat('dd/MM/yyyy').format(picked);
                   if (def.table == 'transporte' && f.key == 'data') {
-                    _atualizarFreteAutomatico();
+                    _atualizarCargaAutomatica();
                   }
                 }
               },
@@ -908,7 +928,7 @@ class _EntityFormState extends State<_EntityForm> {
               onPressed: () {
                 ctrl.text = _today;
                 if (def.table == 'transporte' && f.key == 'data') {
-                  _atualizarFreteAutomatico();
+                  _atualizarCargaAutomatica();
                 }
               },
             ),
@@ -958,13 +978,13 @@ class _EntityFormState extends State<_EntityForm> {
       onChanged: (v) {
         setState(() => _refValues[f.key] = v);
         if (def.table == 'transporte' && f.key == 'cliente_id') {
-          _atualizarFreteAutomatico();
+          _atualizarCargaAutomatica();
         }
       },
     );
   }
 
-  Future<void> _atualizarFreteAutomatico() async {
+  Future<void> _atualizarCargaAutomatica() async {
     if (def.table != 'transporte') return;
 
     final clienteId = _refValues['cliente_id'];
@@ -989,6 +1009,80 @@ class _EntityFormState extends State<_EntityForm> {
     if (freteCtrl.text.trim().isEmpty || freteAtual == null || freteAtual == 0) {
       freteCtrl.text = calculado.toStringAsFixed(2);
     }
+  }
+
+  void _atualizarResumoFrete() {
+    if (def.table != 'transporte') return;
+    setState(() {});
+  }
+
+  double _calcularFreteTransporte() {
+    final tipo = _selects['tipo_frete'];
+    if (tipo == 'km') {
+      final km = double.tryParse(_ctrls['distancia_km']?.text.replaceAll(',', '.') ?? '') ?? 0;
+      final valor = double.tryParse(_ctrls['valor_km']?.text.replaceAll(',', '.') ?? '') ?? 0;
+      return km * valor;
+    }
+    if (tipo == 'combinado') {
+      return double.tryParse(_ctrls['valor_combinado']?.text.replaceAll(',', '.') ?? '') ?? 0;
+    }
+    return 0;
+  }
+
+  double _calcularTotalTransporte() {
+    final carga = double.tryParse(_ctrls['frete']?.text.replaceAll(',', '.') ?? '') ?? 0;
+    return carga + _calcularFreteTransporte();
+  }
+
+  Widget _buildTransporteResumo() {
+    final frete = _calcularFreteTransporte();
+    final total = _calcularTotalTransporte();
+    final tipo = _selects['tipo_frete'];
+
+    return Card(
+      margin: const EdgeInsets.only(top: 8, bottom: 14),
+      color: BrandColors.forest.withValues(alpha: 0.06),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Resumo da viagem',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800, color: BrandColors.forest)),
+            const SizedBox(height: 12),
+            _buildResumoRow('Carga', _ctrls['frete']?.text ?? '0'),
+            if (tipo != null && tipo.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _buildResumoRow('Frete', frete.toStringAsFixed(2)),
+            ],
+            const Divider(height: 18),
+            _buildResumoRow('Total', total.toStringAsFixed(2), isTotal: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResumoRow(String label, String valor, {bool isTotal = false}) {
+    final v = double.tryParse(valor.replaceAll(',', '.')) ?? 0;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label,
+            style: TextStyle(
+              fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
+              fontSize: isTotal ? 16 : 14,
+            )),
+        Text('R\$ ${v.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontWeight: isTotal ? FontWeight.w900 : FontWeight.w700,
+              fontSize: isTotal ? 18 : 14,
+              color: isTotal ? BrandColors.forest : null,
+            )),
+      ],
+    );
   }
 
   DateTime? _parseDate(String text) {

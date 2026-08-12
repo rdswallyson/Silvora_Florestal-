@@ -653,23 +653,32 @@ Foi detectada e corrigida a ausência da coluna `transporte_id` em `public.lanca
 
 Hoje o campo `frete` no módulo Transporte acumula dois conceitos financeiramente distintos:
 1. **Carga**: valor da madeira/produto entregue = `volume_m3 × preço vigente do cliente`.
-2. **Frete**: valor do transporte = `distancia_km × valor_km`.
+2. **Frete**: valor do transporte, que pode ser calculado de duas formas:
+   - **Por quilômetro**: `distancia_km × valor_km`.
+   - **Valor combinado**: valor fechado digitado diretamente, sem relação com distância.
 
-A separação torna a precificação transparente e permite que usuários (ex: transportadoras próprias) registrem apenas a carga, sem frete separado.
+A separação torna a precificação transparente e permite que usuários (ex: transportadoras próprias) registrem apenas a carga, sem frete separado, ou registrem o frete da forma que foi negociado.
 
-**Objetivo:** reestruturar a tabela, triggers e interface do Transporte para tratar Carga e Frete como valores independentes, com um Total calculado automaticamente.
+**Objetivo:** reestruturar a tabela, triggers e interface do Transporte para tratar Carga e Frete como valores independentes, com Total calculado automaticamente.
 
 ---
 
 ## 2. Requisitos
 
-1. Adicionar `distancia_km` e `valor_km` (ambos numeric, nullable) em `public.transporte`.
+1. Adicionar `distancia_km`, `valor_km`, `tipo_frete` e `valor_combinado` em `public.transporte`.
 2. Manter o cálculo automático da **Carga** (`volume_m3 × preço do cliente`) no campo que hoje é `frete`.
-3. Adicionar cálculo do **Frete** = `distancia_km × valor_km` (0 se algum estiver vazio).
+3. Adicionar cálculo do **Frete** com dois modos:
+   - Se `tipo_frete = 'km'`: Frete = `distancia_km × valor_km`.
+   - Se `tipo_frete = 'combinado'`: Frete = `valor_combinado`.
+   - Se `tipo_frete` for nulo ou os campos estiverem vazios: Frete = 0.
 4. Calcular **Total** = Carga + Frete.
-5. A trigger `transporte_gera_receita` deve gerar o lançamento financeiro baseado no **Total**, não só na Carga.
-6. Na UI de cadastro/edição, exibir claramente: Carga, Km, Valor/Km, Frete, Total.
-7. Km e Valor/Km são opcionais/vazios para usuários que não cobram frete separado.
+5. A trigger `transporte_gera_receita` deve gerar o lançamento financeiro baseado no **Total**.
+6. Na UI de cadastro/edição, exibir:
+   - Carga (calculada automaticamente, editável).
+   - Toggle/seletor "Frete por km" / "Frete combinado".
+   - Campos correspondentes ao modo selecionado.
+   - Frete calculado e Total (read-only).
+7. Todos os campos de frete são opcionais — usuário pode deixar vazio e registrar só a carga.
 
 ---
 
@@ -679,17 +688,23 @@ A separação torna a precificação transparente e permite que usuários (ex: t
 
 | Coluna | Tipo | Nullable | Default | Descrição |
 |---|---|---|---|---|
-| `frete` | numeric | sim | `0` | Passa a representar a **Carga** (volume × preço cliente). |
-| `distancia_km` | numeric | sim | `NULL` | Quilômetros percorridos. |
-| `valor_km` | numeric | sim | `NULL` | Valor cobrado por km. |
-
-> **Decisão de nomenclatura:** manter o nome da coluna `frete` como **Carga** internamente evita recriar FKs/índices, mas a interface deve renomeá-lo para "Valor da carga (R$)". Futuramente pode-se renomear a coluna via migration, mas isso exige refatorar queries — fora do escopo mínimo.
+| `frete` | numeric | sim | `0` | Passa a representar a **Carga** (volume × preço cliente). Ver decisão de nomenclatura na seção 8. |
+| `distancia_km` | numeric | sim | `NULL` | Quilômetros percorridos (modo km). |
+| `valor_km` | numeric | sim | `NULL` | Valor cobrado por km (modo km). |
+| `tipo_frete` | text | sim | `NULL` | Modo de cálculo do frete: `'km'` ou `'combinado'`. |
+| `valor_combinado` | numeric | sim | `NULL` | Valor fechado do frete (modo combinado). |
 
 ### 3.2 Novo cálculo
 
 ```text
 Carga  = COALESCE(volume_m3, 0) × preco_vigente_cliente
-Frete  = COALESCE(distancia_km, 0) × COALESCE(valor_km, 0)
+
+Frete  = CASE
+          WHEN tipo_frete = 'km'      THEN COALESCE(distancia_km, 0) × COALESCE(valor_km, 0)
+          WHEN tipo_frete = 'combinado' THEN COALESCE(valor_combinado, 0)
+          ELSE 0
+         END
+
 Total  = Carga + Frete
 ```
 
@@ -700,16 +715,18 @@ Total  = Carga + Frete
 ### 4.1 Nova migration: `20260811000000_separga_carga_frete_transporte.sql`
 
 ```sql
--- Adiciona colunas de distância e valor por km
+-- Adiciona colunas de distância, valor por km, tipo de frete e valor combinado
 alter table public.transporte
   add column if not exists distancia_km numeric,
-  add column if not exists valor_km numeric;
+  add column if not exists valor_km numeric,
+  add column if not exists tipo_frete text check (tipo_frete in ('km', 'combinado')),
+  add column if not exists valor_combinado numeric;
 
 -- Garante que frete exista (já deve existir, mas defensivo)
 alter table public.transporte
   alter column frete set default 0;
 
--- Atualiza função que gera receita: usa Total = frete (carga) + distancia_km * valor_km
+-- Atualiza função que gera receita: usa Total = carga (frete) + frete calculado
 create or replace function public.transporte_gera_receita()
 returns trigger
 language plpgsql
@@ -719,7 +736,14 @@ declare
   v_frete numeric;
   v_total numeric;
 begin
-  v_frete := coalesce(NEW.distancia_km, 0) * coalesce(NEW.valor_km, 0);
+  v_frete := case
+    when NEW.tipo_frete = 'km' then
+      coalesce(NEW.distancia_km, 0) * coalesce(NEW.valor_km, 0)
+    when NEW.tipo_frete = 'combinado' then
+      coalesce(NEW.valor_combinado, 0)
+    else 0
+  end;
+
   v_total := coalesce(NEW.frete, 0) + v_frete;
 
   if v_total > 0 then
@@ -752,10 +776,22 @@ declare
   v_frete_new numeric;
   v_total_new numeric;
 begin
-  v_frete_old := coalesce(OLD.distancia_km, 0) * coalesce(OLD.valor_km, 0);
+  v_frete_old := case
+    when OLD.tipo_frete = 'km' then
+      coalesce(OLD.distancia_km, 0) * coalesce(OLD.valor_km, 0)
+    when OLD.tipo_frete = 'combinado' then
+      coalesce(OLD.valor_combinado, 0)
+    else 0
+  end;
   v_total_old := coalesce(OLD.frete, 0) + v_frete_old;
 
-  v_frete_new := coalesce(NEW.distancia_km, 0) * coalesce(NEW.valor_km, 0);
+  v_frete_new := case
+    when NEW.tipo_frete = 'km' then
+      coalesce(NEW.distancia_km, 0) * coalesce(NEW.valor_km, 0)
+    when NEW.tipo_frete = 'combinado' then
+      coalesce(NEW.valor_combinado, 0)
+    else 0
+  end;
   v_total_new := coalesce(NEW.frete, 0) + v_frete_new;
 
   if v_total_new is distinct from v_total_old then
@@ -787,8 +823,13 @@ Atualizar definição de `transporte`:
     // referências (veiculo, motorista, fazenda, cliente)
     const FieldDef('volume_m3', 'Volume (m³)', type: FieldType.decimal, suffix: 'm³'),
     const FieldDef('frete', 'Valor da carga (R\$)', type: FieldType.decimal, suffix: 'R\$'),
+    const FieldDef('tipo_frete', 'Tipo de frete', type: FieldType.select, options: [
+      'km',
+      'combinado',
+    ]),
     const FieldDef('distancia_km', 'Distância (km)', type: FieldType.decimal, suffix: 'km'),
     const FieldDef('valor_km', 'Valor por km (R\$)', type: FieldType.decimal, suffix: 'R\$/km'),
+    const FieldDef('valor_combinado', 'Valor combinado (R\$)', type: FieldType.decimal, suffix: 'R\$'),
     const FieldDef('data', 'Data'),
   ],
   titleOf: (m) => _ref(m, 'veiculo', 'nome').isNotEmpty ? _ref(m, 'veiculo', 'nome') : 'Viagem',
@@ -805,7 +846,7 @@ Atualizar definição de `transporte`:
   leadingOf: (m) => _iconAvatar(Icons.route, BrandColors.info),
   trailingOf: (m) {
     final carga = _d(m, 'frete');
-    final frete = _d(m, 'distancia_km') * _d(m, 'valor_km');
+    final frete = _calcularFrete(m);
     final total = carga + frete;
     return Text('R\$ ${total.toStringAsFixed(0)}',
         style: const TextStyle(fontWeight: FontWeight.w800, color: BrandColors.forest));
@@ -813,21 +854,40 @@ Atualizar definição de `transporte`:
 ),
 ```
 
+O helper `_calcularFrete`:
+
+```dart
+double _calcularFrete(Map m) {
+  final tipo = m['tipo_frete']?.toString();
+  if (tipo == 'km') {
+    return _d(m, 'distancia_km') * _d(m, 'valor_km');
+  }
+  if (tipo == 'combinado') {
+    return _d(m, 'valor_combinado');
+  }
+  return 0;
+}
+```
+
 ### 5.2 `lib/screens/entity_list_screen.dart`
 
 - Renomear método `_atualizarFreteAutomatico` para `_atualizarCargaAutomatica`.
 - Manter preenchimento automático do campo `frete` (agora "Valor da carga") a partir do preço do cliente × volume.
-- Adicionar listeners em `distancia_km` e `valor_km` para recalcular o **Frete** e exibir o **Total** em tempo real.
-- Adicionar uma seção visual com os 4 valores:
-  - Carga (read-only ou editável, já preenchido automaticamente)
-  - Distância (km) — editável
-  - Valor/km — editável
-  - Frete calculado — read-only
-  - Total — read-only
+- Adicionar controle de estado para `tipo_frete` (padrão: nenhum/seleção vazia).
+- Quando `tipo_frete = 'km'`, mostrar campos `distancia_km` e `valor_km`; calcular Frete = distancia_km × valor_km.
+- Quando `tipo_frete = 'combinado'`, mostrar campo `valor_combinado`; usar esse valor diretamente como Frete.
+- Quando `tipo_frete` for nulo, Frete = 0.
+- Exibir cards/read-only com:
+  - Carga (editável, preenchido automaticamente)
+  - Tipo de frete (seletor)
+  - Campos condicionais (km/valor_km ou valor_combinado)
+  - Frete calculado (read-only)
+  - Total = Carga + Frete (read-only)
+- Adicionar listeners em `cliente_id`, `volume_m3`, `tipo_frete`, `distancia_km`, `valor_km` e `valor_combinado` para recalcular os valores em tempo real.
 
 ### 5.3 `lib/screens/entity_detail_screen.dart`
 
-- Se houver detalhe de transporte, atualizar os cards para mostrar Carga, Frete e Total separadamente.
+- Se houver detalhe de transporte, atualizar os cards para mostrar Carga, Tipo de frete, Frete e Total separadamente.
 
 ---
 
@@ -836,12 +896,13 @@ Atualizar definição de `transporte`:
 | Cenário | Comportamento |
 |---|---|
 | Usuário preenche cliente + volume | Carga preenchida automaticamente (preço cliente × volume). |
-| Usuário não preenche km/valor_km | Frete = 0; Total = Carga. |
-| Usuário preenche km + valor_km | Frete = km × valor_km; Total = Carga + Frete. |
+| Usuário não seleciona tipo de frete | Frete = 0; Total = Carga. |
+| `tipo_frete = 'km'` e km/valor_km preenchidos | Frete = km × valor_km; Total = Carga + Frete. |
+| `tipo_frete = 'combinado'` e valor preenchido | Frete = valor_combinado; Total = Carga + Frete. |
 | Usuário edita carga manualmente | Valor editável; Total recalculado. |
-| Usuário edita km/valor_km | Frete e Total recalculados. |
+| Usuário muda o tipo de frete | Campos correspondentes aparecem; Frete e Total recalculados. |
 | Cliente sem preço cadastrado | Carga fica 0/vazia; usuário pode preencher manualmente. |
-| Transportadora própria (só carga) | Deixa km/valor_km vazios; lançamento usa apenas carga. |
+| Transportadora própria (só carga) | Não seleciona tipo de frete; lançamento usa apenas carga. |
 
 ---
 
@@ -850,7 +911,7 @@ Atualizar definição de `transporte`:
 ### 7.1 Teste de schema
 
 1. Aplicar migration.
-2. Confirmar que `distancia_km` e `valor_km` existem em `public.transporte`.
+2. Confirmar que `distancia_km`, `valor_km`, `tipo_frete` e `valor_combinado` existem em `public.transporte`.
 3. Confirmar que `transporte_gera_receita` e `transporte_atualiza_receita` foram substituídas.
 
 ### 7.2 Teste de cálculo no banco
@@ -861,15 +922,25 @@ INSERT INTO public.transporte (owner_id, cliente_id, volume_m3, frete, data)
 VALUES (auth.uid(), 'cliente-com-preco', 27, 2295, CURRENT_DATE);
 -- Esperado: lançamento de R$ 2.295,00.
 
--- Cenário 2: carga + frete
-INSERT INTO public.transporte (owner_id, cliente_id, volume_m3, frete, distancia_km, valor_km, data)
-VALUES (auth.uid(), 'cliente-com-preco', 27, 2295, 100, 3.50, CURRENT_DATE);
+-- Cenário 2: carga + frete por km
+INSERT INTO public.transporte (owner_id, cliente_id, volume_m3, frete, tipo_frete, distancia_km, valor_km, data)
+VALUES (auth.uid(), 'cliente-com-preco', 27, 2295, 'km', 100, 3.50, CURRENT_DATE);
 -- Esperado: lançamento de R$ 2.645,00 (2.295 + 350).
 
--- Cenário 3: sem preço de cliente, só frete
-INSERT INTO public.transporte (owner_id, cliente_id, volume_m3, frete, distancia_km, valor_km, data)
-VALUES (auth.uid(), 'cliente-sem-preco', 0, 0, 80, 4.00, CURRENT_DATE);
+-- Cenário 3: carga + frete combinado
+INSERT INTO public.transporte (owner_id, cliente_id, volume_m3, frete, tipo_frete, valor_combinado, data)
+VALUES (auth.uid(), 'cliente-com-preco', 27, 2295, 'combinado', 500.00, CURRENT_DATE);
+-- Esperado: lançamento de R$ 2.795,00 (2.295 + 500).
+
+-- Cenário 4: sem preço de cliente, só frete por km
+INSERT INTO public.transporte (owner_id, cliente_id, volume_m3, frete, tipo_frete, distancia_km, valor_km, data)
+VALUES (auth.uid(), 'cliente-sem-preco', 0, 0, 'km', 80, 4.00, CURRENT_DATE);
 -- Esperado: lançamento de R$ 320,00.
+
+-- Cenário 5: sem preço de cliente, só frete combinado
+INSERT INTO public.transporte (owner_id, cliente_id, volume_m3, frete, tipo_frete, valor_combinado, data)
+VALUES (auth.uid(), 'cliente-sem-preco', 0, 0, 'combinado', 600.00, CURRENT_DATE);
+-- Esperado: lançamento de R$ 600,00.
 ```
 
 ### 7.3 Teste no app
@@ -878,24 +949,43 @@ VALUES (auth.uid(), 'cliente-sem-preco', 0, 0, 80, 4.00, CURRENT_DATE);
 2. Selecionar cliente com preço (ex: Magarida, R$ 85/m³).
 3. Preencher volume = 27.
 4. Confirmar que "Valor da carga" = R$ 2.295,00.
-5. Deixar km/valor_km vazios e salvar.
-6. Verificar no Financeiro lançamento de R$ 2.295,00.
-7. Editar a viagem, preencher km = 100 e valor_km = 3,50.
-8. Confirmar Frete = R$ 350,00 e Total = R$ 2.645,00.
-9. Verificar lançamento atualizado para R$ 2.645,00.
+5. **Sem tipo de frete selecionado:** salvar. Verificar lançamento de R$ 2.295,00.
+6. **Frete por km:** selecionar tipo "Por km", preencher km = 100 e valor/km = 3,50. Confirmar Frete = R$ 350,00 e Total = R$ 2.645,00. Salvar e verificar lançamento.
+7. **Frete combinado:** editar a viagem, trocar tipo para "Valor combinado", preencher R$ 500,00. Confirmar Frete = R$ 500,00 e Total = R$ 2.795,00. Salvar e verificar lançamento atualizado.
+8. **Regressão:** viagens antigas sem `tipo_frete` continuam com Total = Carga.
 
 ### 7.4 Teste de regressão
 
-- Viagens antigas (sem `distancia_km`/`valor_km`) continuam com Total = Carga.
+- Viagens antigas (sem `tipo_frete`) continuam com Total = Carga.
 - Updates em viagens antigas não quebram o lançamento financeiro.
 
 ---
 
 ## 8. Notas de Implementação
 
-- O nome da coluna `frete` não será renomeado no banco nesta etapa para evitar quebra de FKs/índices e simplificar a migration. A interface assume essa renomeação.
+### 8.1 Nomenclatura da coluna `frete`
+
+**Pergunta do usuário:** por que manter o nome `frete` no banco representando Carga, em vez de renomear para `valor_carga`?
+
+**Resposta:** renomear é tecnicamente simples (`ALTER TABLE transporte RENAME COLUMN frete TO valor_carga;`), mas o nome `frete` já é referenciado em vários lugares do sistema. Para fazer "certo", seria necessário atualizar:
+
+- Triggers `transporte_gera_receita` e `transporte_atualiza_receita` (migration nova).
+- `lib/data/entities.dart` (definição do campo e cálculos).
+- `lib/screens/entity_list_screen.dart` (formulário de cadastro/edição e cálculo automático).
+- `lib/screens/entity_detail_screen.dart` (detalhes, se houver).
+- Telas legadas: `lib/screens/modules.dart`, `dashboard_screen.dart`, `financeiro_screen.dart`, `relatorios_screen.dart`, `ia_screen.dart`.
+- `lib/data/mock_data.dart`.
+- Documentação (`RELATORIO_ESTRUTURAL_SILVORA.md`, `plan.md`).
+
+Não há FKs nem índices diretos sobre a coluna `frete`, então a operação em si é segura. O custo é puramente de refatoração de código.
+
+**Decisão:** nesta primeira etapa, manter o nome `frete` no banco e renomear apenas na interface para "Valor da carga (R$)". Isso minimiza o risco de regressão e acelera a entrega. Se o usuário quiser, uma etapa posterior pode renomear a coluna formalmente via migration.
+
+### 8.2 Outras notas
+
 - Todos os cálculos de Total consideram `COALESCE(..., 0)` para tratar nulos.
 - As triggers continuam com `SECURITY INVOKER`, respeitando RLS.
+- O campo `tipo_frete` utiliza `CHECK` para garantir apenas `'km'` ou `'combinado'`.
 
 ---
 

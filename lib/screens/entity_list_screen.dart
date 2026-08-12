@@ -568,6 +568,7 @@ class _EntityFormState extends State<_EntityForm> {
   bool _loading = true;
   bool _saving = false;
   String? _loadError;
+  double? _precoVigente;
 
   EntityDef get def => widget.def;
 
@@ -599,6 +600,27 @@ class _EntityFormState extends State<_EntityForm> {
       }
     }
     _loadOptions();
+    _carregarPrecoVigente();
+  }
+
+  Future<void> _carregarPrecoVigente() async {
+    if (def.table != 'clientes' || widget.existing == null) return;
+    try {
+      final preco = await ClientePrecoService.buscarPrecoVigente(
+        '${widget.existing!['id']}',
+        DateTime.now(),
+      );
+      if (mounted) {
+        setState(() {
+          _precoVigente = preco;
+          if (preco != null && _ctrls['valor_m3'] != null) {
+            _ctrls['valor_m3']!.text = _fmtInitial(preco);
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Erro ao carregar preço vigente: $e');
+    }
   }
 
   Set<String> _initialMulti(FieldDef f) {
@@ -701,7 +723,7 @@ class _EntityFormState extends State<_EntityForm> {
       if (def.table == 'clientes' && _ctrls['valor_m3'] != null) {
         final raw = _ctrls['valor_m3']!.text.trim();
         final novoValor = raw.isEmpty ? null : double.tryParse(raw.replaceAll(',', '.'));
-        if (novoValor != null) {
+        if (novoValor != null && novoValor != _precoVigente) {
           await ClientePrecoService.salvarPreco(id, novoValor);
         }
       }

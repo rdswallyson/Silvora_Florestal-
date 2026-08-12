@@ -569,6 +569,7 @@ class _EntityFormState extends State<_EntityForm> {
   bool _saving = false;
   String? _loadError;
   double? _precoVigente;
+  bool _cargaEditadaManualmente = false;
 
   EntityDef get def => widget.def;
 
@@ -879,6 +880,12 @@ class _EntityFormState extends State<_EntityForm> {
               if (f.key == 'volume_m3') {
                 _atualizarCargaAutomatica();
               }
+              if (f.key == 'frete') {
+                _cargaEditadaManualmente = true;
+                if (_ctrls['frete']?.text.trim().isEmpty ?? true) {
+                  _cargaEditadaManualmente = false;
+                }
+              }
               if (['distancia_km', 'valor_km', 'valor_combinado'].contains(f.key)) {
                 _atualizarResumoFrete();
               }
@@ -1006,8 +1013,15 @@ class _EntityFormState extends State<_EntityForm> {
 
     final calculado = preco * volume;
     final freteAtual = double.tryParse(freteCtrl.text.replaceAll(',', '.'));
-    if (freteCtrl.text.trim().isEmpty || freteAtual == null || freteAtual == 0) {
+
+    // Só atualiza automaticamente se o usuário ainda não editou manualmente
+    // ou se apagou o valor (volta ao modo automático).
+    if (!_cargaEditadaManualmente ||
+        freteCtrl.text.trim().isEmpty ||
+        freteAtual == null ||
+        freteAtual == 0) {
       freteCtrl.text = calculado.toStringAsFixed(2);
+      _cargaEditadaManualmente = false;
     }
   }
 

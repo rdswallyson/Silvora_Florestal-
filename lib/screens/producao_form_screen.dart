@@ -29,6 +29,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
   DateTime? _data;
   final _volumeCtrl = TextEditingController(text: '0');
   final _arvoresCtrl = TextEditingController(text: '0');
+  final _horasCtrl = TextEditingController(text: '1');
   final _obsCtrl = TextEditingController();
 
   List<Map<String, dynamic>> _funcionarios = [];
@@ -216,6 +217,32 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
 
   double get _volume => double.tryParse(_volumeCtrl.text.replaceAll(',', '.')) ?? 0;
   int get _arvores => int.tryParse(_arvoresCtrl.text) ?? 0;
+  double get _horas => double.tryParse(_horasCtrl.text.replaceAll(',', '.')) ?? 1;
+
+  Map<String, dynamic>? get _funcionarioSelecionado {
+    if (_funcionarioId == null) return null;
+    return _funcionarios.firstWhere(
+      (f) => f['id'].toString() == _funcionarioId,
+      orElse: () => {},
+    );
+  }
+
+  String? get _formaIndividual => _funcionarioSelecionado?['forma_remuneracao']?.toString();
+
+  bool get _mostrarVolumeArvores {
+    if (_tipoProducao == 'Individual') {
+      return _formaIndividual == 'Metro cúbico' || _formaIndividual == 'Árvore';
+    }
+    // Equipe: exibe se pelo menos um selecionado usa m³ ou árvore.
+    final selecionados = _participantes.where((p) => p['selecionado'] == true);
+    if (selecionados.isEmpty) return true; // mostra por padrão até escolher
+    return selecionados.any((p) {
+      final forma = p['funcionario']['forma_remuneracao']?.toString();
+      return forma == 'Metro cúbico' || forma == 'Árvore';
+    });
+  }
+
+  bool get _mostrarHorasIndividual => _formaIndividual == 'Hora';
 
   Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
@@ -248,7 +275,11 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
         );
         if (f.isEmpty) throw Exception('Funcionário não encontrado');
         participantes = [
-          {'funcionario': f, 'selecionado': true, 'horas': 1.0}
+          {
+            'funcionario': f,
+            'selecionado': true,
+            'horas': _horas,
+          }
         ];
       } else {
         participantes = _participantes;
@@ -332,33 +363,52 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
                     const SizedBox(height: 16),
                     _buildDataField(),
                     const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _volumeCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Volume total (m³)',
-                              suffixText: 'm³',
-                            ),
-                            keyboardType:
-                                const TextInputType.numberWithOptions(decimal: true),
-                            validator: (v) => (v?.isEmpty ?? true) ? 'Informe' : null,
-                          ),
+                    if (_mostrarHorasIndividual) ...[
+                      TextFormField(
+                        controller: _horasCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Horas trabalhadas',
+                          suffixText: 'h',
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _arvoresCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Total de árvores',
+                        keyboardType:
+                            const TextInputType.numberWithOptions(decimal: true),
+                        validator: (v) {
+                          if (v?.isEmpty ?? true) return 'Informe';
+                          final n = double.tryParse(v!.replaceAll(',', '.'));
+                          if (n == null || n <= 0) return 'Inválido';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (_mostrarVolumeArvores)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _volumeCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Volume total (m³)',
+                                suffixText: 'm³',
+                              ),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(decimal: true),
+                              validator: (v) => (v?.isEmpty ?? true) ? 'Informe' : null,
                             ),
-                            keyboardType: TextInputType.number,
-                            validator: (v) => (v?.isEmpty ?? true) ? 'Informe' : null,
                           ),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              controller: _arvoresCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Total de árvores',
+                              ),
+                              keyboardType: TextInputType.number,
+                              validator: (v) => (v?.isEmpty ?? true) ? 'Informe' : null,
+                            ),
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _obsCtrl,
@@ -467,27 +517,58 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
   Widget _buildParticipanteTile(Map<String, dynamic> p) {
     final f = p['funcionario'] as Map<String, dynamic>;
     final selecionado = p['selecionado'] == true;
+    final forma = f['forma_remuneracao']?.toString() ?? '';
+    final ehHora = forma == 'Hora';
     final calculo = selecionado
         ? ProducaoCalculoService.calcular(
             funcionario: f,
             volume: _volume,
             arvores: _arvores,
+            horas: _parseDouble(p['horas'] ?? 1),
           )
         : null;
 
-    String info = f['forma_remuneracao']?.toString() ?? '';
+    String info = forma;
     if (calculo != null && calculo.valorTotal > 0) {
       info += ' • R\$ ${calculo.valorTotal.toStringAsFixed(2)}';
     }
 
-    return CheckboxListTile(
-      value: selecionado,
-      onChanged: (v) => setState(() => p['selecionado'] = v == true),
-      title: Text(f['nome']?.toString() ?? ''),
-      subtitle: info.isNotEmpty ? Text(info) : null,
-      controlAffinity: ListTileControlAffinity.leading,
-      activeColor: BrandColors.forest,
+    return Column(
+      children: [
+        CheckboxListTile(
+          value: selecionado,
+          onChanged: (v) => setState(() => p['selecionado'] = v == true),
+          title: Text(f['nome']?.toString() ?? ''),
+          subtitle: info.isNotEmpty ? Text(info) : null,
+          controlAffinity: ListTileControlAffinity.leading,
+          activeColor: BrandColors.forest,
+        ),
+        if (selecionado && ehHora)
+          Padding(
+            padding: const EdgeInsets.only(left: 56, right: 16, bottom: 8),
+            child: TextFormField(
+              initialValue: (p['horas'] ?? 1).toString(),
+              decoration: const InputDecoration(
+                labelText: 'Horas trabalhadas',
+                suffixText: 'h',
+                isDense: true,
+              ),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (v) {
+                final n = double.tryParse(v.replaceAll(',', '.'));
+                setState(() => p['horas'] = n ?? 1);
+              },
+            ),
+          ),
+      ],
     );
+  }
+
+  double _parseDouble(dynamic value) {
+    if (value == null) return 0;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? 0;
   }
 
   Widget _buildTalhaoField() {
@@ -556,6 +637,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
   void dispose() {
     _volumeCtrl.dispose();
     _arvoresCtrl.dispose();
+    _horasCtrl.dispose();
     _obsCtrl.dispose();
     super.dispose();
   }

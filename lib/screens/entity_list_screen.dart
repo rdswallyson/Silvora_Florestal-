@@ -827,6 +827,17 @@ class _EntityFormState extends State<_EntityForm> {
   }
 
   Widget _buildField(FieldDef f) {
+    // Campos condicionais de frete na tela de Transporte.
+    if (def.table == 'transporte') {
+      final tipo = _selects['tipo_frete'];
+      if (['distancia_km', 'valor_km'].contains(f.key) && tipo != 'km') {
+        return const SizedBox.shrink();
+      }
+      if (f.key == 'valor_combinado' && tipo != 'combinado') {
+        return const SizedBox.shrink();
+      }
+    }
+
     Widget field;
     switch (f.type) {
       case FieldType.select:
@@ -837,13 +848,13 @@ class _EntityFormState extends State<_EntityForm> {
           decoration: InputDecoration(labelText: f.label),
           items: isTipoFrete
               ? [
-                  const DropdownMenuItem<String?>(value: null, child: Text('— sem frete separado —')),
+                  const DropdownMenuItem<String?>(value: null, child: Text('Sem frete separado')),
                   const DropdownMenuItem<String?>(value: 'km', child: Text('Por quilômetro')),
                   const DropdownMenuItem<String?>(value: 'combinado', child: Text('Valor combinado')),
                 ]
               : [
                   if (!f.required)
-                    const DropdownMenuItem<String?>(value: null, child: Text('— nenhum —')),
+                    const DropdownMenuItem<String?>(value: null, child: Text('Nenhum')),
                   ...f.options.map((o) => DropdownMenuItem(value: o, child: Text(o))),
                 ],
           validator: (v) =>
@@ -974,7 +985,7 @@ class _EntityFormState extends State<_EntityForm> {
       items: [
         if (!f.required)
           const DropdownMenuItem<String?>(
-              value: null, child: Text('— nenhum —')),
+              value: null, child: Text('Nenhum')),
         ...opts.map((o) => DropdownMenuItem(
               value: '${o['id']}',
               child: Text(f.refLabelOf!(o), overflow: TextOverflow.ellipsis),

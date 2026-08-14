@@ -15,6 +15,7 @@ class NavItem {
 const kNavItems = <NavItem>[
   NavItem('/dashboard', 'Início', Icons.dashboard_outlined),
   NavItem('/producao', 'Produção', Icons.grass_outlined),
+  NavItem('/consulta-producao', 'Consulta de Produção', Icons.search_outlined),
   NavItem('/funcionarios', 'Funcionários', Icons.badge_outlined),
   NavItem('/equipes', 'Equipes', Icons.groups_outlined),
   NavItem('/fazendas', 'Fazendas', Icons.terrain_outlined),

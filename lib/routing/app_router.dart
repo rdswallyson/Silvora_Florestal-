@@ -13,6 +13,7 @@ import '../screens/relatorios_screen.dart';
 import '../screens/ia_screen.dart';
 import '../screens/configuracoes_screen.dart';
 import '../screens/entity_list_screen.dart';
+import '../screens/consulta_producao_screen.dart';
 import '../data/entities.dart';
 import '../widgets/app_shell.dart';
 import '../services/auth_service.dart';
@@ -74,6 +75,9 @@ final appRouter = GoRouter(
             path: '/producao',
             pageBuilder: (c, s) =>
                 _fade(EntityListScreen(kEntities['producao']!), s)),
+        GoRoute(
+            path: '/consulta-producao',
+            pageBuilder: (c, s) => _fade(const ConsultaProducaoScreen(), s)),
         GoRoute(
             path: '/funcionarios',
             pageBuilder: (c, s) =>

@@ -23,14 +23,19 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final forma = _s(funcionario, 'forma_remuneracao');
     double volume = 0;
     double arvores = 0;
+    double horas = 0;
     double valor = 0;
     for (final pf in producoesFuncionario) {
       final p = pf['producao'];
       if (p is Map) {
         volume += _d(p, 'volume_total');
         arvores += _d(p, 'total_arvores');
+      }
+      if (forma == 'Hora') {
+        horas += _d(pf, 'quantidade_calculo');
       }
       valor += _d(pf, 'valor_total');
     }
@@ -62,29 +67,7 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
                     style: const TextStyle(color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _miniStat('Produções',
-                            '${producoesFuncionario.length}'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _miniStat(
-                            'Volume', '${volume.toStringAsFixed(1)} m³'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child:
-                            _miniStat('Árvores', '${arvores.toStringAsFixed(0)}'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _miniStat(
-                            'Total', _currency.format(valor), highlight: true),
-                      ),
-                    ],
-                  ),
+                  _buildResumoStats(forma, volume, arvores, horas, valor),
                 ],
               ),
             ),
@@ -149,20 +132,7 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
                               _linhaInfo(Icons.paid_outlined,
                                   '$forma • ${qtd.toStringAsFixed(0)} un'),
                               const Divider(height: 24),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Volume: ${volumeP.toStringAsFixed(1)} m³',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                  Text(
-                                    'Árvores: ${arvoresP.toStringAsFixed(0)}',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ],
-                              ),
+                              _buildItemResumo(forma, volumeP, arvoresP, qtd),
                             ],
                           ),
                         ),
@@ -173,6 +143,123 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Widget _buildResumoStats(
+      String forma, double volume, double arvores, double horas, double valor) {
+    final base = <Widget>[
+      Expanded(
+        child: _miniStat('Produções', '${producoesFuncionario.length}'),
+      ),
+    ];
+
+    switch (forma) {
+      case 'Diária':
+      case 'Produção fixa':
+        return Row(
+          children: [
+            ...base,
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat(
+                  'Total', _currency.format(valor), highlight: true),
+            ),
+          ],
+        );
+      case 'Hora':
+        return Row(
+          children: [
+            ...base,
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat('Horas', '${horas.toStringAsFixed(1)} h'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat(
+                  'Total', _currency.format(valor), highlight: true),
+            ),
+          ],
+        );
+      case 'Árvore':
+        return Row(
+          children: [
+            ...base,
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat('Árvores', '${arvores.toStringAsFixed(0)}'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat(
+                  'Total', _currency.format(valor), highlight: true),
+            ),
+          ],
+        );
+      case 'Metro cúbico':
+      default:
+        return Row(
+          children: [
+            ...base,
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat('Volume', '${volume.toStringAsFixed(1)} m³'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat(
+                  'Total', _currency.format(valor), highlight: true),
+            ),
+          ],
+        );
+    }
+  }
+
+  Widget _buildItemResumo(
+      String forma, double volume, double arvores, double qtd) {
+    switch (forma) {
+      case 'Diária':
+      case 'Produção fixa':
+        return const SizedBox.shrink();
+      case 'Hora':
+        return Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Horas: ${qtd.toStringAsFixed(1)} h',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        );
+      case 'Árvore':
+        return Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Árvores: ${arvores.toStringAsFixed(0)}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        );
+      case 'Metro cúbico':
+      default:
+        return Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Volume: ${volume.toStringAsFixed(1)} m³',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+            Text(
+              'Árvores: ${arvores.toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+        );
+    }
   }
 
   Widget _miniStat(String label, String value, {bool highlight = false}) {

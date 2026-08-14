@@ -58,7 +58,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
               '*, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)');
       final pfFuture = Db.list('producao_funcionarios',
           select:
-              '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, situacao), producao:producao!producao_id(data, talhao:talhao_id(codigo), equipe:equipe_id(nome))');
+              '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, situacao), producao:producao!producao_id(data, volume_total, total_arvores, talhao:talhao_id(codigo), equipe:equipe_id(nome))');
 
       final results = await Future.wait([
         funcionariosFuture,
@@ -146,24 +146,34 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
         .toList();
   }
 
-  Map<String, dynamic> _totaisFuncionario(String funcionarioId) {
-    final pfs = _producoesDoFuncionario(funcionarioId);
+  Map<String, dynamic> _totaisFuncionario(Map<String, dynamic> funcionario) {
+    final id = '${funcionario['id']}';
+    final forma = _s(funcionario, 'forma_remuneracao');
+    final pfs = _producoesDoFuncionario(id);
     double volume = 0;
     double arvores = 0;
+    double horas = 0;
     double valor = 0;
+
     for (final pf in pfs) {
       final producao = pf['producao'];
       if (producao is Map) {
         volume += _d(producao, 'volume_total');
         arvores += _d(producao, 'total_arvores');
       }
+      if (forma == 'Hora') {
+        horas += _d(pf, 'quantidade_calculo');
+      }
       valor += _d(pf, 'valor_total');
     }
+
     return {
       'quantidade': pfs.length,
       'volume': volume,
       'arvores': arvores,
+      'horas': horas,
       'valor': valor,
+      'forma': forma,
     };
   }
 
@@ -304,25 +314,23 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
       itemBuilder: (context, index) {
         final f = _funcionariosVisiveis[index];
         final id = '${f['id']}';
-        final totais = _totaisFuncionario(id);
-        final temDados = (totais['quantidade'] as int) > 0;
+        final totais = _totaisFuncionario(f);
+        final forma = _s(totais, 'forma');
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: temDados
-                ? () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ConsultaProducaoFuncionarioScreen(
-                          funcionario: f,
-                          dataInicio: _dataInicio!,
-                          dataFim: _dataFim!,
-                          producoesFuncionario: _producoesDoFuncionario(id),
-                        ),
-                      ),
-                    )
-                : null,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ConsultaProducaoFuncionarioScreen(
+                  funcionario: f,
+                  dataInicio: _dataInicio!,
+                  dataFim: _dataFim!,
+                  producoesFuncionario: _producoesDoFuncionario(id),
+                ),
+              ),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -355,32 +363,11 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                           ],
                         ),
                       ),
-                      if (temDados)
-                        const Icon(Icons.chevron_right,
-                            color: Colors.grey),
+                      const Icon(Icons.chevron_right, color: Colors.grey),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _miniStat('Volume',
-                            '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _miniStat('Árvores',
-                            '${(totais['arvores'] as double).toStringAsFixed(0)}'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _miniStat(
-                            'A receber',
-                            _currency.format(totais['valor']),
-                            highlight: true),
-                      ),
-                    ],
-                  ),
+                  _buildStatsRow(totais, forma),
                 ],
               ),
             ),
@@ -461,6 +448,77 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
         );
       },
     );
+  }
+
+  Widget _buildStatsRow(Map<String, dynamic> totais, String forma) {
+    switch (forma) {
+      case 'Diária':
+      case 'Produção fixa':
+        return Row(
+          children: [
+            Expanded(
+              child: _miniStat('Dias/participações',
+                  '${totais['quantidade']}'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat(
+                  'A receber',
+                  _currency.format(totais['valor']),
+                  highlight: true),
+            ),
+          ],
+        );
+      case 'Hora':
+        return Row(
+          children: [
+            Expanded(
+              child: _miniStat(
+                  'Horas', '${(totais['horas'] as double).toStringAsFixed(1)} h'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat(
+                  'A receber',
+                  _currency.format(totais['valor']),
+                  highlight: true),
+            ),
+          ],
+        );
+      case 'Árvore':
+        return Row(
+          children: [
+            Expanded(
+              child: _miniStat('Árvores',
+                  '${(totais['arvores'] as double).toStringAsFixed(0)}'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat(
+                  'A receber',
+                  _currency.format(totais['valor']),
+                  highlight: true),
+            ),
+          ],
+        );
+      case 'Metro cúbico':
+      default:
+        return Row(
+          children: [
+            Expanded(
+              child: _miniStat('Volume',
+                  '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _miniStat(
+                  'A receber',
+                  _currency.format(totais['valor']),
+                  highlight: true),
+            ),
+          ],
+        );
+    }
   }
 
   Widget _miniStat(String label, String value, {bool highlight = false}) {

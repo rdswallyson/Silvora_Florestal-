@@ -11,9 +11,9 @@ import '../screens/gps_screen.dart';
 import '../screens/financeiro_screen.dart';
 import '../screens/relatorios_screen.dart';
 import '../screens/ia_screen.dart';
+import '../screens/producao_module_screen.dart';
 import '../screens/configuracoes_screen.dart';
 import '../screens/entity_list_screen.dart';
-import '../screens/consulta_producao_screen.dart';
 import '../data/entities.dart';
 import '../widgets/app_shell.dart';
 import '../services/auth_service.dart';
@@ -73,11 +73,7 @@ final appRouter = GoRouter(
             pageBuilder: (c, s) => _fade(const DashboardScreen(), s)),
         GoRoute(
             path: '/producao',
-            pageBuilder: (c, s) =>
-                _fade(EntityListScreen(kEntities['producao']!), s)),
-        GoRoute(
-            path: '/consulta-producao',
-            pageBuilder: (c, s) => _fade(const ConsultaProducaoScreen(), s)),
+            pageBuilder: (c, s) => _fade(const ProducaoModuleScreen(), s)),
         GoRoute(
             path: '/funcionarios',
             pageBuilder: (c, s) =>

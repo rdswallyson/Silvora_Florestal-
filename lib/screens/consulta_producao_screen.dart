@@ -56,7 +56,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
       final equipesFuture = Db.list('equipes', orderBy: 'nome', ascending: true);
       final producoesFuture = Db.list('producao',
           select:
-              '*, equipe_id, funcionario_id, volume_total, total_arvores, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)');
+              'id, data, talhao_id, equipe_id, funcionario_id, volume_total, total_arvores, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)');
       final pfFuture = Db.list('producao_funcionarios',
           select:
               '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, situacao), producao:producao!producao_id(data, volume_total, total_arvores, talhao:talhao_id(codigo), equipe:equipe_id(nome))');
@@ -234,7 +234,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Column(
         children: [
           _buildFiltros(),
@@ -266,68 +266,58 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
 
   Widget _buildFiltros() {
     final fmt = DateFormat('dd/MM/yyyy');
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
-      color: Colors.white,
+      color: isDark ? BrandColors.graySurface : Colors.white,
       elevation: 2,
       margin: const EdgeInsets.fromLTRB(20, 16, 20, 12),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Text('Período',
                 style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: BrandColors.forestDark)),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _selecionarDataInicio,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: BrandColors.forestDark,
-                      side: const BorderSide(color: BrandColors.forest),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    icon: const Icon(Icons.calendar_today,
-                        size: 16, color: BrandColors.forest),
-                    label: Text(
-                      _dataInicio == null
-                          ? 'Data inicial'
-                          : fmt.format(_dataInicio!),
-                      style: const TextStyle(color: BrandColors.forestDark),
-                    ),
+                  child: _buildDateButton(
+                    label: _dataInicio == null
+                        ? 'Data inicial'
+                        : fmt.format(_dataInicio!),
+                    icon: Icons.calendar_today,
+                    onTap: _selecionarDataInicio,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _selecionarDataFim,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: BrandColors.forestDark,
-                      side: const BorderSide(color: BrandColors.forest),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    icon: const Icon(Icons.calendar_today,
-                        size: 16, color: BrandColors.forest),
-                    label: Text(
-                      _dataFim == null
-                          ? 'Data final'
-                          : fmt.format(_dataFim!),
-                      style: const TextStyle(color: BrandColors.forestDark),
-                    ),
+                  child: _buildDateButton(
+                    label: _dataFim == null
+                        ? 'Data final'
+                        : fmt.format(_dataFim!),
+                    icon: Icons.calendar_today,
+                    onTap: _selecionarDataFim,
                   ),
                 ),
                 const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: _carregar,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: BrandColors.forest,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                SizedBox(
+                  height: 48,
+                  width: 48,
+                  child: FilledButton(
+                    onPressed: _carregar,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: BrandColors.forest,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Icon(Icons.search, size: 22),
                   ),
-                  child: const Icon(Icons.search),
                 ),
               ],
             ),
@@ -343,6 +333,49 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                 const Text('Incluir inativos',
                     style: TextStyle(color: BrandColors.forestDark)),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.grey.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: BrandColors.forest.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: BrandColors.forest),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: BrandColors.forestDark,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),

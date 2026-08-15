@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../services/db_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import 'consulta_producao_equipe_screen.dart';
 import 'consulta_producao_funcionario_screen.dart';
 
 /// Tela de consulta de produção por funcionário/equipe em um período.
@@ -55,7 +56,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
       final equipesFuture = Db.list('equipes', orderBy: 'nome', ascending: true);
       final producoesFuture = Db.list('producao',
           select:
-              '*, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)');
+              '*, equipe_id, funcionario_id, volume_total, total_arvores, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)');
       final pfFuture = Db.list('producao_funcionarios',
           select:
               '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, situacao), producao:producao!producao_id(data, volume_total, total_arvores, talhao:talhao_id(codigo), equipe:equipe_id(nome))');
@@ -103,9 +104,10 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
 
   DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
-    if (value is DateTime) return value;
+    if (value is DateTime) return DateTime(value.year, value.month, value.day);
     try {
-      return DateTime.parse(value.toString());
+      final dt = DateTime.parse(value.toString());
+      return DateTime(dt.year, dt.month, dt.day);
     } catch (_) {
       return null;
     }
@@ -178,9 +180,9 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   }
 
   Map<String, dynamic> _totaisEquipe(String equipeId) {
-    final producoes = _producoes
-        .where((p) => '${p['equipe_id']}' == equipeId)
-        .toList();
+    final producoes = _producoes.where((p) {
+      return _matchEquipeId(p, equipeId);
+    }).toList();
     double volume = 0;
     double arvores = 0;
     double valor = 0;
@@ -197,6 +199,20 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
       'arvores': arvores,
       'valor': valor,
     };
+  }
+
+  List<Map<String, dynamic>> _producoesDaEquipe(String equipeId) {
+    return _producoes.where((p) => _matchEquipeId(p, equipeId)).toList();
+  }
+
+  bool _matchEquipeId(Map<String, dynamic> producao, String equipeId) {
+    final rawId = producao['equipe_id'];
+    if (rawId != null && '${rawId}' == equipeId) return true;
+    final nested = producao['equipe'];
+    if (nested is Map && nested['id'] != null && '${nested['id']}' == equipeId) {
+      return true;
+    }
+    return false;
   }
 
   String _nomeFuncionario(String id) {
@@ -251,6 +267,8 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   Widget _buildFiltros() {
     final fmt = DateFormat('dd/MM/yyyy');
     return Card(
+      color: Colors.white,
+      elevation: 2,
       margin: const EdgeInsets.fromLTRB(20, 16, 20, 12),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -258,32 +276,57 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Período',
-                style: TextStyle(fontWeight: FontWeight.w700)),
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: BrandColors.forestDark)),
             const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _selecionarDataInicio,
-                    icon: const Icon(Icons.calendar_today, size: 16),
-                    label: Text(_dataInicio == null
-                        ? 'Início'
-                        : fmt.format(_dataInicio!)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: BrandColors.forestDark,
+                      side: const BorderSide(color: BrandColors.forest),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    icon: const Icon(Icons.calendar_today,
+                        size: 16, color: BrandColors.forest),
+                    label: Text(
+                      _dataInicio == null
+                          ? 'Data inicial'
+                          : fmt.format(_dataInicio!),
+                      style: const TextStyle(color: BrandColors.forestDark),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _selecionarDataFim,
-                    icon: const Icon(Icons.calendar_today, size: 16),
-                    label: Text(_dataFim == null
-                        ? 'Fim'
-                        : fmt.format(_dataFim!)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: BrandColors.forestDark,
+                      side: const BorderSide(color: BrandColors.forest),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    icon: const Icon(Icons.calendar_today,
+                        size: 16, color: BrandColors.forest),
+                    label: Text(
+                      _dataFim == null
+                          ? 'Data final'
+                          : fmt.format(_dataFim!),
+                      style: const TextStyle(color: BrandColors.forestDark),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 FilledButton(
                   onPressed: _carregar,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: BrandColors.forest,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
                   child: const Icon(Icons.search),
                 ),
               ],
@@ -293,9 +336,12 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
               children: [
                 Checkbox(
                   value: _incluirInativos,
-                  onChanged: (v) => setState(() => _incluirInativos = v ?? false),
+                  onChanged: (v) =>
+                      setState(() => _incluirInativos = v ?? false),
+                  activeColor: BrandColors.forest,
                 ),
-                const Text('Incluir inativos'),
+                const Text('Incluir inativos',
+                    style: TextStyle(color: BrandColors.forestDark)),
               ],
             ),
           ],
@@ -390,59 +436,75 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
         final totais = _totaisEquipe(id);
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 22,
-                      backgroundColor:
-                          BrandColors.forest.withValues(alpha: 0.15),
-                      child: const Icon(Icons.groups,
-                          color: BrandColors.forest),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(_s(e, 'nome'),
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w700, fontSize: 15)),
-                          Text(
-                            '${totais['quantidade']} produção(ões)',
-                            style: const TextStyle(
-                                color: Colors.grey, fontSize: 12),
-                          ),
-                        ],
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ConsultaProducaoEquipeScreen(
+                  equipe: e,
+                  dataInicio: _dataInicio!,
+                  dataFim: _dataFim!,
+                  producoesEquipe: _producoesDaEquipe(id),
+                  producaoFuncionarios: _producaoFuncionarios,
+                ),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor:
+                            BrandColors.forest.withValues(alpha: 0.15),
+                        child: const Icon(Icons.groups,
+                            color: BrandColors.forest),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _miniStat('Volume',
-                          '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _miniStat('Árvores',
-                          '${(totais['arvores'] as double).toStringAsFixed(0)}'),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _miniStat('Total pago',
-                          _currency.format(totais['valor']),
-                          highlight: true),
-                    ),
-                  ],
-                ),
-              ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_s(e, 'nome'),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700, fontSize: 15)),
+                            Text(
+                              '${totais['quantidade']} produção(ões)',
+                              style: const TextStyle(
+                                  color: Colors.grey, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.grey),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _miniStat('Volume',
+                            '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _miniStat('Árvores',
+                            '${(totais['arvores'] as double).toStringAsFixed(0)}'),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _miniStat('Total pago',
+                            _currency.format(totais['valor']),
+                            highlight: true),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );

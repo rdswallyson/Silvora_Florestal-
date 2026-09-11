@@ -81,19 +81,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, double> _producaoPorDia(List<Map> list) {
     final map = <String, double>{};
     for (final m in list) {
-      final d = '${m['data']}'.trim();
+      var d = '${m['data']}'.trim();
       if (d.isEmpty || d == 'null') continue;
+      // A coluna é `date`, mas se algum registro vier como timestamp
+      // ("2026-08-14T00:00:00") a chave precisa ficar só com a parte da data.
+      if (d.length > 10) d = d.substring(0, 10);
       map[d] = (map[d] ?? 0) + (double.tryParse('${m['volume_total']}') ?? 0);
     }
     return map;
   }
 
-  List<FlSpot> _buildSpots(Map<String, double> porDia) {
-    final hoje = DateTime.now();
+  List<FlSpot> _buildSpots(Map<String, double> porDia, DateTime fim) {
     return List.generate(7, (i) {
-      final d = hoje.subtract(Duration(days: 6 - i));
+      final d = fim.subtract(Duration(days: 6 - i));
       return FlSpot(i.toDouble(), porDia[_dateStr(d)] ?? 0);
     });
+  }
+
+  /// Soma o volume de uma janela de dias contada a partir de [fim], de
+  /// `deInicio` dias atrás até `deFim` dias atrás (exclusivo).
+  double _volumeJanela(
+      Map<String, double> porDia, DateTime fim, int deInicio, int deFim) {
+    var total = 0.0;
+    for (var i = deInicio; i > deFim; i--) {
+      total += porDia[_dateStr(fim.subtract(Duration(days: i)))] ?? 0;
+    }
+    return total;
+  }
+
+  /// Data final da janela do gráfico: normalmente hoje, mas se não houve
+  /// produção nos últimos 7 dias cai para o dia da última produção, para o
+  /// gráfico não ficar permanentemente vazio.
+  DateTime _fimJanelaGrafico(Map<String, double> porDia) {
+    final hoje = DateTime.now();
+    final hojeSemHora = DateTime(hoje.year, hoje.month, hoje.day);
+    var temNaSemana = false;
+    for (var i = 0; i < 7; i++) {
+      if ((porDia[_dateStr(hojeSemHora.subtract(Duration(days: i)))] ?? 0) > 0) {
+        temNaSemana = true;
+        break;
+      }
+    }
+    if (temNaSemana || porDia.isEmpty) return hojeSemHora;
+
+    DateTime? ultima;
+    for (final e in porDia.entries) {
+      if (e.value <= 0) continue;
+      final d = DateTime.tryParse(e.key);
+      if (d == null) continue;
+      if (ultima == null || d.isAfter(ultima)) ultima = d;
+    }
+    return ultima ?? hojeSemHora;
   }
 
   String _dateStr(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
@@ -171,8 +209,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final lucro = receitas - despesas;
 
         final porDia = _producaoPorDia(data.producoes);
-        final spots = _buildSpots(porDia);
-        final maxY = porDia.values.fold<double>(0, (a, b) => a > b ? a : b);
+        final fimJanela = _fimJanelaGrafico(porDia);
+        final spots = _buildSpots(porDia, fimJanela);
+        final maxY = spots.fold<double>(0, (a, s) => a > s.y ? a : s.y);
+        // Total/média precisam refletir a mesma janela do gráfico (7 dias),
+        // senão o cabeçalho mostra um total que não existe na curva.
+        final volume7 = spots.fold<double>(0, (a, s) => a + s.y);
+        final volume7Anterior = _volumeJanela(porDia, fimJanela, 13, 6);
+        final variacao7 = volume7Anterior > 0
+            ? ((volume7 - volume7Anterior) / volume7Anterior) * 100
+            : null;
 
         final freteReceitas = data.transporte.fold<double>(
             0, (s, m) => s + (double.tryParse('${m['frete']}') ?? 0));
@@ -270,10 +316,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             // Gráfico
             _ChartCard(
-              data: data.producoes,
               spots: spots,
               maxY: maxY,
               dias: _diasSemana,
+              fim: fimJanela,
+              volumeSemana: volume7,
+              variacao: variacao7,
             ),
 
             const SizedBox(height: 18),
@@ -534,21 +582,34 @@ class _SparklinePainter extends CustomPainter {
 }
 
 class _ChartCard extends StatelessWidget {
-  final List<Map<String, dynamic>> data;
   final List<FlSpot> spots;
   final double maxY;
   final List<String> dias;
+  final DateTime fim;
+  final double volumeSemana;
+  final double? variacao;
   const _ChartCard({
-    required this.data,
     required this.spots,
     required this.maxY,
     required this.dias,
+    required this.fim,
+    required this.volumeSemana,
+    required this.variacao,
   });
 
   @override
   Widget build(BuildContext context) {
-    final total = data.fold<double>(0, (s, m) => s + (double.tryParse('${m['volume_total']}') ?? 0));
-    final media = data.isEmpty ? 0 : total / 7;
+    final media = volumeSemana / 7;
+    final semProducao = maxY <= 0;
+    final v = variacao;
+    final hoje = DateTime.now();
+    final atual = fim.year == hoje.year &&
+        fim.month == hoje.month &&
+        fim.day == hoje.day;
+    final inicio = fim.subtract(const Duration(days: 6));
+    final titulo = atual
+        ? 'Produção dos últimos 7 dias'
+        : 'Produção de ${_d(inicio)} a ${_d(fim)}';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -556,11 +617,15 @@ class _ChartCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Produção dos últimos 7 dias',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w800, fontSize: 17)),
+                Expanded(
+                  child: Text(titulo,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 17)),
+                ),
+                const SizedBox(width: 8),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -577,12 +642,16 @@ class _ChartCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 14),
-            Row(
+            // Wrap em vez de Row: em telas estreitas o badge de variação passa
+            // para a linha de baixo em vez de ser cortado na borda do card.
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text('Total: ${total.toStringAsFixed(1)} m³',
+                Text('Total: ${volumeSemana.toStringAsFixed(1)} m³',
                     style: const TextStyle(
                         fontWeight: FontWeight.w700, fontSize: 13)),
-                const SizedBox(width: 16),
                 Text('Média diária: ${media.toStringAsFixed(1)} m³',
                     style: TextStyle(
                         color: Theme.of(context)
@@ -590,33 +659,42 @@ class _ChartCard extends StatelessWidget {
                             .onSurface
                             .withValues(alpha: 0.55),
                         fontSize: 13)),
-                const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: BrandColors.successSoft,
-                    borderRadius: BorderRadius.circular(20),
+                if (v != null)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: v >= 0
+                          ? BrandColors.successSoft
+                          : BrandColors.danger.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                        '${v >= 0 ? '↗' : '↘'} ${v.abs().toStringAsFixed(1)}% vs semana anterior',
+                        style: TextStyle(
+                            color: v >= 0
+                                ? BrandColors.success
+                                : BrandColors.danger,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11)),
                   ),
-                  child: const Text('↗ 18,6% vs última semana',
-                      style: TextStyle(
-                          color: BrandColors.success,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11)),
-                ),
               ],
             ),
             const SizedBox(height: 20),
             SizedBox(
               height: 220,
-              child: data.isEmpty
+              child: semProducao
                   ? const Center(
-                      child: Text('Sem dados de produção ainda',
+                      child: Text('Sem produção registrada ainda',
+                          textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey)))
                   : LineChart(
                       LineChartData(
                         minY: 0,
-                        maxY: maxY < 10 ? 10 : maxY * 1.2,
+                        maxY: maxY * 1.2,
+                        // Sem o clip desligado, a parte da linha que encosta na
+                        // borda do gráfico (valor 0) é cortada e desaparece.
+                        clipData: const FlClipData.none(),
                         gridData: const FlGridData(show: false),
                         borderData: FlBorderData(show: false),
                         lineTouchData: LineTouchData(
@@ -644,22 +722,42 @@ class _ChartCard extends StatelessWidget {
                             sideTitles: SideTitles(
                               showTitles: true,
                               interval: 1,
-                              getTitlesWidget: (v, meta) {
-                                final idx = v.toInt();
+                              reservedSize: 44,
+                              getTitlesWidget: (value, meta) {
+                                final idx = value.toInt();
                                 if (idx < 0 || idx > 6) {
                                   return const SizedBox.shrink();
                                 }
-                                final hoje = DateTime.now();
-                                final d = hoje.subtract(
-                                    Duration(days: 6 - idx));
+                                final d = fim.subtract(Duration(days: 6 - idx));
+                                final valor =
+                                    idx < spots.length ? spots[idx].y : 0.0;
                                 return Padding(
-                                  padding: const EdgeInsets.only(top: 10),
-                                  child: Text(
-                                    dias[d.weekday % 7],
-                                    style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.grey),
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        dias[d.weekday % 7],
+                                        style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.grey),
+                                      ),
+                                      Text(
+                                        valor == 0
+                                            ? '-'
+                                            : valor.toStringAsFixed(
+                                                valor == valor.roundToDouble()
+                                                    ? 0
+                                                    : 1),
+                                        style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                            color: valor == 0
+                                                ? Colors.grey
+                                                : BrandColors.forest),
+                                      ),
+                                    ],
                                   ),
                                 );
                               },
@@ -670,6 +768,7 @@ class _ChartCard extends StatelessWidget {
                           LineChartBarData(
                             spots: spots,
                             isCurved: true,
+                            preventCurveOverShooting: true,
                             color: BrandColors.forest,
                             barWidth: 3,
                             belowBarData: BarAreaData(
@@ -704,6 +803,9 @@ class _ChartCard extends StatelessWidget {
       ),
     );
   }
+
+  static String _d(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
 }
 
 class _OperacionalCard extends StatelessWidget {

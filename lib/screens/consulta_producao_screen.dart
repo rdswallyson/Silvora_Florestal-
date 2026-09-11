@@ -54,34 +54,34 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
 
       final funcionariosFuture = Db.list('funcionarios', orderBy: 'nome', ascending: true);
       final equipesFuture = Db.list('equipes', orderBy: 'nome', ascending: true);
-      final producoesFuture = Db.list('producao',
-          select:
-              'id, data, talhao_id, equipe_id, funcionario_id, volume_total, total_arvores, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)');
-      final pfFuture = Db.list('producao_funcionarios',
-          select:
-              '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, situacao), producao:producao!producao_id(data, volume_total, total_arvores, talhao:talhao_id(codigo), equipe:equipe_id(nome))');
+
+      final c = Db.instance.client;
+      final producoesRes = await c
+          .from('producao')
+          .select(
+              'id, data, talhao_id, equipe_id, funcionario_id, volume_total, total_arvores, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)')
+          .gte('data', inicio)
+          .lte('data', fim)
+          .order('data', ascending: false);
+
+      final producoesNoPeriodo = (producoesRes as List).cast<Map<String, dynamic>>();
+      final producaoIds = producoesNoPeriodo.map((p) => '${p['id']}').toList();
+
+      List<Map<String, dynamic>> pfNoPeriodo = [];
+      if (producaoIds.isNotEmpty) {
+        final pfRes = await c
+            .from('producao_funcionarios')
+            .select(
+                '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, situacao), producao:producao!producao_id(data, volume_total, total_arvores, talhao:talhao_id(codigo), equipe:equipe_id(nome))')
+            .inFilter('producao_id', producaoIds)
+            .order('created_at', ascending: false);
+        pfNoPeriodo = (pfRes as List).cast<Map<String, dynamic>>();
+      }
 
       final results = await Future.wait([
         funcionariosFuture,
         equipesFuture,
-        producoesFuture,
-        pfFuture,
       ]);
-
-      final todasProducoes = (results[2] as List).cast<Map<String, dynamic>>();
-      final todosPf = (results[3] as List).cast<Map<String, dynamic>>();
-
-      final producoesNoPeriodo = todasProducoes.where((p) {
-        final data = _parseDate(p['data']);
-        return data != null &&
-            !data.isBefore(_dataInicio!) &&
-            !data.isAfter(_dataFim!);
-      }).toList();
-
-      final producaoIds = producoesNoPeriodo.map((p) => '${p['id']}').toSet();
-      final pfNoPeriodo = todosPf
-          .where((pf) => producaoIds.contains('${pf['producao_id']}'))
-          .toList();
 
       if (mounted) {
         setState(() {
@@ -104,10 +104,14 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
 
   DateTime? _parseDate(dynamic value) {
     if (value == null) return null;
-    if (value is DateTime) return DateTime(value.year, value.month, value.day);
+    if (value is DateTime) {
+      final local = value.toLocal();
+      return DateTime(local.year, local.month, local.day);
+    }
     try {
       final dt = DateTime.parse(value.toString());
-      return DateTime(dt.year, dt.month, dt.day);
+      final local = dt.toLocal();
+      return DateTime(local.year, local.month, local.day);
     } catch (_) {
       return null;
     }

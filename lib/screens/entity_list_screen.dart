@@ -6,6 +6,7 @@ import '../services/db_service.dart';
 import '../services/cliente_preco_service.dart';
 import '../theme/app_theme.dart';
 import 'entity_detail_screen.dart';
+import '../widgets/common.dart';
 
 import 'producao_form_screen.dart';
 
@@ -226,27 +227,29 @@ class _EntityListScreenState extends State<EntityListScreen> {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(
-                            child: _FilterBar(
-                              equipes: _equipesOptions,
-                              funcionarios: _funcionariosOptions,
-                              equipeId: _filtroEquipeId,
-                              funcionarioId: _filtroFuncionarioId,
-                              onEquipeChanged: (v) =>
-                                  setState(() => _filtroEquipeId = v),
-                              onFuncionarioChanged: (v) =>
-                                  setState(() => _filtroFuncionarioId = v),
-                            ),
+                          _FilterBar(
+                            equipes: _equipesOptions,
+                            funcionarios: _funcionariosOptions,
+                            equipeId: _filtroEquipeId,
+                            funcionarioId: _filtroFuncionarioId,
+                            onEquipeChanged: (v) =>
+                                setState(() => _filtroEquipeId = v),
+                            onFuncionarioChanged: (v) =>
+                                setState(() => _filtroFuncionarioId = v),
                           ),
-                          const SizedBox(width: 8),
-                          IconButton.outlined(
-                            onPressed: () => setState(() =>
-                                _modoIndividualProducao =
-                                    !_modoIndividualProducao),
-                            icon: const Icon(Icons.person_outline),
-                            tooltip: 'Ver por funcionário',
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: OutlinedButton.icon(
+                              onPressed: () => setState(() =>
+                                  _modoIndividualProducao =
+                                      !_modoIndividualProducao),
+                              icon: const Icon(Icons.person_outline, size: 18),
+                              label: const Text('Ver por funcionário'),
+                            ),
                           ),
                         ],
                       ),
@@ -431,11 +434,15 @@ class _EntityTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(def.titleOf(item),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             fontWeight: FontWeight.w700, fontSize: 15)),
                     if (subtitle.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(subtitle,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               fontSize: 13,
                               height: 1.3,
@@ -447,7 +454,11 @@ class _EntityTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (trailing != null) trailing,
+              if (trailing != null)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 110),
+                  child: trailing,
+                ),
               const SizedBox(width: 4),
               _IconButton(
                 icon: Icons.edit_outlined,
@@ -1116,11 +1127,15 @@ class _EntityFormState extends State<_EntityForm> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label,
-            style: TextStyle(
-              fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
-              fontSize: isTotal ? 16 : 14,
-            )),
+        Flexible(
+          child: Text(label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
+                fontSize: isTotal ? 16 : 14,
+              )),
+        ),
+        const SizedBox(width: 8),
         Text('R\$ ${v.toStringAsFixed(2)}',
             style: TextStyle(
               fontWeight: isTotal ? FontWeight.w900 : FontWeight.w700,
@@ -1241,43 +1256,48 @@ class _FilterBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
+        ResponsiveRow(
+          breakpoint: 560,
           children: [
-            Expanded(
-              child: DropdownButtonFormField<String?>(
-                initialValue: equipeId,
-                decoration: const InputDecoration(
-                  labelText: 'Filtrar por equipe',
-                  prefixIcon: Icon(Icons.groups),
-                ),
-                items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('Todas as equipes')),
-                  ...equipes.map((e) => DropdownMenuItem(
-                        value: '${e['id']}',
-                        child: Text(_lblNome(e)),
-                      )),
-                ],
-                onChanged: onEquipeChanged,
+            DropdownButtonFormField<String?>(
+              isExpanded: true,
+              menuMaxHeight: 320,
+              initialValue: equipeId,
+              decoration: const InputDecoration(
+                labelText: 'Filtrar por equipe',
+                prefixIcon: Icon(Icons.groups),
               ),
+              items: [
+                const DropdownMenuItem<String?>(
+                    value: null, child: Text('Todas as equipes')),
+                ...equipes.map((e) => DropdownMenuItem(
+                      value: '${e['id']}',
+                      child: Text(_lblNome(e),
+                          overflow: TextOverflow.ellipsis, maxLines: 1),
+                    )),
+              ],
+              onChanged: onEquipeChanged,
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: DropdownButtonFormField<String?>(
-                initialValue: funcionarioId,
-                decoration: const InputDecoration(
-                  labelText: 'Filtrar por funcionário',
-                  prefixIcon: Icon(Icons.person),
-                ),
-                items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('Todos os funcionários')),
-                  ...funcionarios.map((f) => DropdownMenuItem(
-                        value: '${f['id']}',
-                        child: Text(_lblFuncionario(f)),
-                      )),
-                ],
-                onChanged: onFuncionarioChanged,
+            DropdownButtonFormField<String?>(
+              isExpanded: true,
+              menuMaxHeight: 320,
+              initialValue: funcionarioId,
+              decoration: const InputDecoration(
+                labelText: 'Filtrar por funcionário',
+                prefixIcon: Icon(Icons.person),
               ),
+              items: [
+                const DropdownMenuItem<String?>(
+                    value: null, child: Text('Todos os funcionários')),
+                ...funcionarios.map((f) => DropdownMenuItem(
+                      value: '${f['id']}',
+                      child: Text(_lblFuncionario(f),
+                          overflow: TextOverflow.ellipsis, maxLines: 1),
+                    )),
+              ],
+              onChanged: onFuncionarioChanged,
             ),
           ],
         ),

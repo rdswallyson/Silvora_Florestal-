@@ -357,3 +357,124 @@ void showEmBreve(BuildContext context, String acao) {
     ),
   );
 }
+
+/// Distribui os filhos em uma linha quando há largura suficiente e os empilha
+/// verticalmente em telas estreitas (mobile), evitando conteúdo cortado.
+///
+/// Nunca usa `Expanded` no modo empilhado, então é seguro dentro de
+/// `ScrollView`/`Sliver` (altura não limitada).
+class ResponsiveRow extends StatelessWidget {
+  final List<Widget> children;
+  final double breakpoint;
+  final double gap;
+
+  const ResponsiveRow({
+    super.key,
+    required this.children,
+    this.breakpoint = 560,
+    this.gap = 12,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        final narrow = !maxWidth.isFinite || maxWidth < breakpoint;
+
+        if (narrow) {
+          final stacked = <Widget>[];
+          for (var i = 0; i < children.length; i++) {
+            if (i > 0) stacked.add(SizedBox(height: gap));
+            stacked.add(children[i]);
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: stacked,
+          );
+        }
+
+        final inline = <Widget>[];
+        for (var i = 0; i < children.length; i++) {
+          if (i > 0) inline.add(SizedBox(width: gap));
+          inline.add(Expanded(child: children[i]));
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: inline,
+        );
+      },
+    );
+  }
+}
+
+/// Grade de "mini estatísticas" que quebra em várias linhas conforme a largura
+/// disponível, garantindo uma largura mínima legível por item.
+///
+/// Em telas estreitas os itens ficam 2 por linha (ou 1, se muito estreita),
+/// em vez de comprimir tudo numa única linha e cortar os textos.
+class ResponsiveStatGrid extends StatelessWidget {
+  final List<Widget> children;
+  final double minItemWidth;
+  final double gap;
+
+  const ResponsiveStatGrid({
+    super.key,
+    required this.children,
+    this.minItemWidth = 130,
+    this.gap = 8,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (children.isEmpty) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        var perRow = children.length;
+        if (maxWidth.isFinite) {
+          perRow = ((maxWidth + gap) / (minItemWidth + gap)).floor();
+        }
+        perRow = perRow.clamp(1, children.length);
+
+        final rows = <Widget>[];
+        for (var start = 0; start < children.length; start += perRow) {
+          final end = (start + perRow) > children.length
+              ? children.length
+              : start + perRow;
+          final slice = children.sublist(start, end);
+
+          final cells = <Widget>[];
+          for (var i = 0; i < slice.length; i++) {
+            if (i > 0) cells.add(SizedBox(width: gap));
+            cells.add(Expanded(child: slice[i]));
+          }
+          // Preenche as células que faltam na última linha para manter as
+          // larguras alinhadas com as linhas anteriores.
+          for (var i = slice.length; i < perRow; i++) {
+            cells.add(SizedBox(width: gap));
+            cells.add(const Expanded(child: SizedBox.shrink()));
+          }
+
+          if (rows.isNotEmpty) rows.add(SizedBox(height: gap));
+          rows.add(IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: cells,
+            ),
+          ));
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: rows,
+        );
+      },
+    );
+  }
+}
+
+

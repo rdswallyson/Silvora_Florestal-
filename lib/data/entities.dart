@@ -608,20 +608,15 @@ final Map<String, EntityDef> kEntities = {
       final total = items.fold<double>(0, (s, m) => s + _d(m, 'volume_total'));
       final arvores =
           items.fold<int>(0, (s, m) => s + _i(m, 'total_arvores'));
-      return Row(
+      return ResponsiveRow(
+        breakpoint: 520,
         children: [
-          Expanded(
-              child: _MiniStat('Registros', '${items.length}', Icons.list_alt,
-                  BrandColors.info)),
-          const SizedBox(width: 12),
-          Expanded(
-              child: _MiniStat('Volume total',
-                  '${total.toStringAsFixed(1)} m³', Icons.grass,
-                  BrandColors.forest)),
-          const SizedBox(width: 12),
-          Expanded(
-              child: _MiniStat('Árvores', '$arvores', Icons.park_outlined,
-                  BrandColors.success)),
+          _MiniStat('Registros', '${items.length}', Icons.list_alt,
+              BrandColors.info),
+          _MiniStat('Volume total', '${total.toStringAsFixed(1)} m³',
+              Icons.grass, BrandColors.forest),
+          _MiniStat(
+              'Árvores', '$arvores', Icons.park_outlined, BrandColors.success),
         ],
       );
     },
@@ -767,22 +762,18 @@ final Map<String, EntityDef> kEntities = {
           0, (s, m) => _s(m, 'tipo') == 'Receita' ? s + _d(m, 'valor') : s);
       final despesas = items.fold<double>(
           0, (s, m) => _s(m, 'tipo') == 'Despesa' ? s + _d(m, 'valor') : s);
-      return Row(
+      return ResponsiveRow(
+        breakpoint: 520,
         children: [
-          Expanded(
-              child: _MiniStat('Receitas',
-                  'R\$ ${receitas.toStringAsFixed(0)}', Icons.trending_up,
-                  BrandColors.success)),
-          const SizedBox(width: 12),
-          Expanded(
-              child: _MiniStat('Despesas',
-                  'R\$ ${despesas.toStringAsFixed(0)}', Icons.trending_down,
-                  BrandColors.danger)),
-          const SizedBox(width: 12),
-          Expanded(
-              child: _MiniStat('Saldo',
-                  'R\$ ${(receitas - despesas).toStringAsFixed(0)}',
-                  Icons.account_balance_wallet, BrandColors.forest)),
+          _MiniStat('Receitas', 'R\$ ${receitas.toStringAsFixed(0)}',
+              Icons.trending_up, BrandColors.success),
+          _MiniStat('Despesas', 'R\$ ${despesas.toStringAsFixed(0)}',
+              Icons.trending_down, BrandColors.danger),
+          _MiniStat(
+              'Saldo',
+              'R\$ ${(receitas - despesas).toStringAsFixed(0)}',
+              Icons.account_balance_wallet,
+              BrandColors.forest),
         ],
       );
     },
@@ -806,9 +797,13 @@ class _MiniStat extends StatelessWidget {
             Icon(icon, color: color, size: 20),
             const SizedBox(height: 10),
             Text(value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style:
                     const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
             Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),

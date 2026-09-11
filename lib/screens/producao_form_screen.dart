@@ -382,30 +382,29 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
                       const SizedBox(height: 16),
                     ],
                     if (_mostrarVolumeArvores)
-                      Row(
+                      ResponsiveRow(
+                        breakpoint: 420,
                         children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _volumeCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Volume total (m³)',
-                                suffixText: 'm³',
-                              ),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(decimal: true),
-                              validator: (v) => (v?.isEmpty ?? true) ? 'Informe' : null,
+                          TextFormField(
+                            controller: _volumeCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Volume total (m³)',
+                              suffixText: 'm³',
                             ),
+                            keyboardType:
+                                const TextInputType.numberWithOptions(
+                                    decimal: true),
+                            validator: (v) =>
+                                (v?.isEmpty ?? true) ? 'Informe' : null,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _arvoresCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Total de árvores',
-                              ),
-                              keyboardType: TextInputType.number,
-                              validator: (v) => (v?.isEmpty ?? true) ? 'Informe' : null,
+                          TextFormField(
+                            controller: _arvoresCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Total de árvores',
                             ),
+                            keyboardType: TextInputType.number,
+                            validator: (v) =>
+                                (v?.isEmpty ?? true) ? 'Informe' : null,
                           ),
                         ],
                       ),

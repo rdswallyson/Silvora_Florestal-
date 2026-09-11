@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/db_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common.dart';
 import 'consulta_producao_equipe_screen.dart';
 import 'consulta_producao_funcionario_screen.dart';
 
@@ -274,6 +275,22 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   Widget _buildFiltros() {
     final fmt = DateFormat('dd/MM/yyyy');
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final botaoBuscar = SizedBox(
+      height: 48,
+      child: FilledButton.icon(
+        onPressed: _carregar,
+        style: FilledButton.styleFrom(
+          backgroundColor: BrandColors.forest,
+          foregroundColor: Colors.white,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        icon: const Icon(Icons.search, size: 20),
+        label: const Text('Buscar'),
+      ),
+    );
+
     return Card(
       color: isDark ? BrandColors.graySurface : Colors.white,
       elevation: 2,
@@ -289,43 +306,23 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                     fontWeight: FontWeight.w700,
                     color: BrandColors.forestDark)),
             const SizedBox(height: 12),
-            Row(
+            ResponsiveRow(
+              breakpoint: 520,
               children: [
-                Expanded(
-                  child: _buildDateButton(
-                    label: _dataInicio == null
-                        ? 'Data inicial'
-                        : fmt.format(_dataInicio!),
-                    icon: Icons.calendar_today,
-                    onTap: _selecionarDataInicio,
-                  ),
+                _buildDateButton(
+                  label: _dataInicio == null
+                      ? 'Data inicial'
+                      : fmt.format(_dataInicio!),
+                  icon: Icons.calendar_today,
+                  onTap: _selecionarDataInicio,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildDateButton(
-                    label: _dataFim == null
-                        ? 'Data final'
-                        : fmt.format(_dataFim!),
-                    icon: Icons.calendar_today,
-                    onTap: _selecionarDataFim,
-                  ),
+                _buildDateButton(
+                  label:
+                      _dataFim == null ? 'Data final' : fmt.format(_dataFim!),
+                  icon: Icons.calendar_today,
+                  onTap: _selecionarDataFim,
                 ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  height: 48,
-                  width: 48,
-                  child: FilledButton(
-                    onPressed: _carregar,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: BrandColors.forest,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Icon(Icons.search, size: 22),
-                  ),
-                ),
+                botaoBuscar,
               ],
             ),
             const SizedBox(height: 12),
@@ -337,8 +334,11 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                       setState(() => _incluirInativos = v ?? false),
                   activeColor: BrandColors.forest,
                 ),
-                const Text('Incluir inativos',
-                    style: TextStyle(color: BrandColors.forestDark)),
+                const Flexible(
+                  child: Text('Incluir inativos',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: BrandColors.forestDark)),
+                ),
               ],
             ),
           ],
@@ -439,10 +439,14 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(_s(f, 'nome'),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700, fontSize: 15)),
                             Text(
                               '${totais['quantidade']} produção(ões)',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                   color: Colors.grey, fontSize: 12),
                             ),
@@ -510,10 +514,14 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(_s(e, 'nome'),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700, fontSize: 15)),
                             Text(
                               '${totais['quantidade']} produção(ões)',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                   color: Colors.grey, fontSize: 12),
                             ),
@@ -553,6 +561,10 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   }
 
   Widget _buildStatsRow(Map<String, dynamic> totais, String forma) {
+    final receber = Expanded(
+      child: _miniStat('A receber', _currency.format(totais['valor']),
+          highlight: true),
+    );
     switch (forma) {
       case 'Diária':
       case 'Produção fixa':
@@ -563,12 +575,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                   '${totais['quantidade']}'),
             ),
             const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat(
-                  'A receber',
-                  _currency.format(totais['valor']),
-                  highlight: true),
-            ),
+            receber,
           ],
         );
       case 'Hora':
@@ -579,12 +586,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                   'Horas', '${(totais['horas'] as double).toStringAsFixed(1)} h'),
             ),
             const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat(
-                  'A receber',
-                  _currency.format(totais['valor']),
-                  highlight: true),
-            ),
+            receber,
           ],
         );
       case 'Árvore':
@@ -595,12 +597,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                   '${(totais['arvores'] as double).toStringAsFixed(0)}'),
             ),
             const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat(
-                  'A receber',
-                  _currency.format(totais['valor']),
-                  highlight: true),
-            ),
+            receber,
           ],
         );
       case 'Metro cúbico':
@@ -612,12 +609,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                   '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
             ),
             const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat(
-                  'A receber',
-                  _currency.format(totais['valor']),
-                  highlight: true),
-            ),
+            receber,
           ],
         );
     }
@@ -625,6 +617,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
 
   Widget _miniStat(String label, String value, {bool highlight = false}) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: highlight
@@ -636,12 +629,14 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(value,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 13,
                   color:
                       highlight ? BrandColors.forest : BrandColors.forestDark)),
           Text(label,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 11, color: Colors.grey)),
         ],
       ),

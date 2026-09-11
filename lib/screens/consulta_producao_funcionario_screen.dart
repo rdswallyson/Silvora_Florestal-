@@ -154,72 +154,30 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
 
   Widget _buildResumoStats(
       String forma, double volume, double arvores, double horas, double valor) {
-    final base = <Widget>[
-      Expanded(
-        child: _miniStat('Produções', '${producoesFuncionario.length}'),
-      ),
+    final stats = <Widget>[
+      _miniStat('Produções', '${producoesFuncionario.length}'),
     ];
 
     switch (forma) {
       case 'Diária':
       case 'Produção fixa':
-        return Row(
-          children: [
-            ...base,
-            const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat(
-                  'Total', _currency.format(valor), highlight: true),
-            ),
-          ],
-        );
+        break;
       case 'Hora':
-        return Row(
-          children: [
-            ...base,
-            const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat('Horas', '${horas.toStringAsFixed(1)} h'),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat(
-                  'Total', _currency.format(valor), highlight: true),
-            ),
-          ],
-        );
+        stats.add(_miniStat('Horas', '${horas.toStringAsFixed(1)} h'));
+        break;
       case 'Árvore':
-        return Row(
-          children: [
-            ...base,
-            const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat('Árvores', '${arvores.toStringAsFixed(0)}'),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat(
-                  'Total', _currency.format(valor), highlight: true),
-            ),
-          ],
-        );
+        stats.add(_miniStat('Árvores', '${arvores.toStringAsFixed(0)}'));
+        break;
       case 'Metro cúbico':
       default:
-        return Row(
-          children: [
-            ...base,
-            const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat('Volume', '${volume.toStringAsFixed(1)} m³'),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _miniStat(
-                  'Total', _currency.format(valor), highlight: true),
-            ),
-          ],
-        );
+        stats.add(_miniStat('Volume', '${volume.toStringAsFixed(1)} m³'));
+        break;
     }
+
+    stats.add(
+        _miniStat('Total', _currency.format(valor), highlight: true));
+
+    return ResponsiveStatGrid(minItemWidth: 120, children: stats);
   }
 
   Widget _buildItemResumo(
@@ -279,16 +237,21 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontWeight: FontWeight.w800,
-                  fontSize: 12,
+                  fontSize: 13,
                   color:
                       highlight ? BrandColors.forest : BrandColors.forestDark),
               textAlign: TextAlign.center),
           Text(label,
-              style: const TextStyle(fontSize: 10, color: Colors.grey),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
               textAlign: TextAlign.center),
         ],
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common.dart';
 
 /// Tela de detalhamento das produções de uma equipe em um período.
 class ConsultaProducaoEquipeScreen extends StatelessWidget {
@@ -63,27 +64,15 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
                       style: const TextStyle(color: Colors.grey),
                     ),
                     const SizedBox(height: 16),
-                    Row(
+                    ResponsiveStatGrid(
+                      minItemWidth: 120,
                       children: [
-                        Expanded(
-                          child: _miniStat('Produções',
-                              '${producoesEquipe.length}'),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _miniStat(
-                              'Volume', '${volume.toStringAsFixed(1)} m³'),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _miniStat(
-                              'Árvores', '${arvores.toStringAsFixed(0)}'),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _miniStat('Total pago', _currency.format(valor),
-                              highlight: true),
-                        ),
+                        _miniStat('Produções', '${producoesEquipe.length}'),
+                        _miniStat(
+                            'Volume', '${volume.toStringAsFixed(1)} m³'),
+                        _miniStat('Árvores', '${arvores.toStringAsFixed(0)}'),
+                        _miniStat('Total pago', _currency.format(valor),
+                            highlight: true),
                       ],
                     ),
                   ],
@@ -197,16 +186,21 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontWeight: FontWeight.w800,
-                  fontSize: 12,
+                  fontSize: 13,
                   color:
                       highlight ? BrandColors.forest : BrandColors.forestDark),
               textAlign: TextAlign.center),
           Text(label,
-              style: const TextStyle(fontSize: 10, color: Colors.grey),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
               textAlign: TextAlign.center),
         ],
       ),

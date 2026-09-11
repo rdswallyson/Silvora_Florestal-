@@ -217,13 +217,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   : c.maxWidth > 700
                       ? 2
                       : 2;
+              // Em telas estreitas o card precisa ficar mais alto para caber
+              // ícone + valor + rótulo sem estourar.
+              final ratio = cols == 4
+                  ? 1.95
+                  : c.maxWidth > 700
+                      ? 1.85
+                      : 1.4;
               return GridView.count(
                 crossAxisCount: cols,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-                childAspectRatio: cols == 4 ? 1.95 : 1.85,
+                childAspectRatio: ratio,
                 children: [
                   _KpiCard(
                     label: 'Produção hoje',
@@ -288,25 +295,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
             LayoutBuilder(builder: (context, c) {
               final alertas = _buildAlerts(data);
               final wide = c.maxWidth > 1000;
-              final children = [
-                Expanded(
-                  flex: wide ? 5 : 1,
-                  child: _AlertsCard(
-                    alertas: alertas,
-                    onVerTodos: () => context.go('/relatorios'),
-                  ),
-                ),
-                const SizedBox(width: 16, height: 16),
-                Expanded(
-                  flex: wide ? 7 : 1,
-                  child: _RecentProduction(
-                    producoes: data.producoes,
-                    onVerTudo: () => context.go('/producao'),
-                  ),
-                ),
-              ];
-              if (wide) return Row(children: children);
-              return Column(children: children);
+              final cardAlertas = _AlertsCard(
+                alertas: alertas,
+                onVerTodos: () => context.go('/relatorios'),
+              );
+              final cardProducao = _RecentProduction(
+                producoes: data.producoes,
+                onVerTudo: () => context.go('/producao'),
+              );
+              if (wide) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 5, child: cardAlertas),
+                    const SizedBox(width: 16),
+                    Expanded(flex: 7, child: cardProducao),
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  cardAlertas,
+                  const SizedBox(height: 16),
+                  cardProducao,
+                ],
+              );
             }),
 
             const SizedBox(height: 22),
@@ -477,6 +491,7 @@ class _KpiCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(value,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         color: Colors.white,
@@ -484,6 +499,7 @@ class _KpiCard extends StatelessWidget {
                         fontWeight: FontWeight.w900)),
                 const SizedBox(height: 2),
                 Text(label,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.85),
@@ -723,7 +739,11 @@ class _OperacionalCard extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
-                childAspectRatio: cols == 4 ? 2.6 : 2.2,
+                childAspectRatio: cols == 4
+                    ? 2.6
+                    : c.maxWidth > 420
+                        ? 2.2
+                        : 1.9,
                 children: [
                   _OpItem(Icons.badge_outlined, 'Funcionários', '$funcionarios',
                       BrandColors.info),

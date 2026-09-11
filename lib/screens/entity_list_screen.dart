@@ -613,8 +613,12 @@ class _EntityFormState extends State<_EntityForm> {
       switch (f.type) {
         case FieldType.select:
           final val = initial?.toString();
+          // Usa o valor padrão do campo (ex: Situação = Ativo) quando não há
+          // valor válido — inclusive ao editar registros antigos gravados sem
+          // esse campo, senão o dropdown abriria em "Nenhum" e o salvamento
+          // apagaria os campos que dependem dele.
           _selects[f.key] =
-              (val != null && f.options.contains(val)) ? val : null;
+              (val != null && f.options.contains(val)) ? val : f.defaultValue;
           break;
         case FieldType.reference:
           _refValues[f.key] = initial?.toString();
@@ -707,6 +711,18 @@ class _EntityFormState extends State<_EntityForm> {
     final data = <String, dynamic>{};
     for (final f in def.fields) {
       if (f.type == FieldType.multiReference) continue;
+      // Campo oculto pela condição não deve gravar valor residual: se o
+      // usuário digitou R$/m³ e depois mudou a forma para Diária, o valor por
+      // m³ tem de ser zerado, não persistido escondido. Campos numéricos vão
+      // a 0 (e não null) porque as funções de cálculo no banco multiplicam
+      // esses valores e null propagaria para o resultado.
+      if (!_isVisible(f)) {
+        data[f.key] =
+            (f.type == FieldType.number || f.type == FieldType.decimal)
+                ? 0
+                : null;
+        continue;
+      }
       dynamic value;
       if (f.type == FieldType.select) {
         value = _selects[f.key];
@@ -858,17 +874,17 @@ class _EntityFormState extends State<_EntityForm> {
     );
   }
 
+  /// Um campo só aparece quando o campo do qual ele depende está com um dos
+  /// valores listados em `visibleWhen`. Sem `dependsOn`, aparece sempre.
+  bool _isVisible(FieldDef f) {
+    final dep = f.dependsOn;
+    if (dep == null || f.visibleWhen.isEmpty) return true;
+    final atual = _selects[dep] ?? _ctrls[dep]?.text.trim();
+    return atual != null && f.visibleWhen.contains(atual);
+  }
+
   Widget _buildField(FieldDef f) {
-    // Campos condicionais de frete na tela de Transporte.
-    if (def.table == 'transporte') {
-      final tipo = _selects['tipo_frete'];
-      if (['distancia_km', 'valor_km'].contains(f.key) && tipo != 'km') {
-        return const SizedBox.shrink();
-      }
-      if (f.key == 'valor_combinado' && tipo != 'combinado') {
-        return const SizedBox.shrink();
-      }
-    }
+    if (!_isVisible(f)) return const SizedBox.shrink();
 
     Widget field;
     switch (f.type) {
@@ -885,12 +901,15 @@ class _EntityFormState extends State<_EntityForm> {
                   const DropdownMenuItem<String?>(value: 'combinado', child: Text('Valor combinado')),
                 ]
               : [
-                  if (!f.required)
+                  // Só oferece "Nenhum" quando o campo é opcional e não tem um
+                  // valor padrão definido — senão o dropdown abre em "Nenhum".
+                  if (!f.required && f.defaultValue == null)
                     const DropdownMenuItem<String?>(value: null, child: Text('Nenhum')),
                   ...f.options.map((o) => DropdownMenuItem(value: o, child: Text(o))),
                 ],
-          validator: (v) =>
-              f.required && (v == null) ? 'Campo obrigatório' : null,
+          validator: (v) => (f.required || f.defaultValue != null) && v == null
+              ? 'Campo obrigatório'
+              : null,
           onChanged: (v) {
             setState(() => _selects[f.key] = v);
             if (isTipoFrete) {

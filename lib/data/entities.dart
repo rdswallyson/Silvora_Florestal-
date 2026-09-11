@@ -24,6 +24,16 @@ class FieldDef {
   final List<String> options; // usado quando type == select
   final String? suffix;
 
+  /// Valor pré-selecionado em novos cadastros (apenas para type == select).
+  final String? defaultValue;
+
+  // --- visibilidade condicional ---
+  /// Chave do campo que controla se este campo aparece no formulário.
+  final String? dependsOn;
+
+  /// Valores de [dependsOn] que fazem este campo aparecer. Vazio = sempre.
+  final List<String> visibleWhen;
+
   // --- referência (reference / multiReference) ---
   final String? refTable; // tabela de origem das opções
   final String Function(Map<String, dynamic>)? refLabelOf; // rótulo da opção
@@ -41,6 +51,9 @@ class FieldDef {
     this.required = false,
     this.options = const [],
     this.suffix,
+    this.defaultValue,
+    this.dependsOn,
+    this.visibleWhen = const [],
     this.refTable,
     this.refLabelOf,
     this.joinTable,
@@ -187,7 +200,7 @@ final Map<String, EntityDef> kEntities = {
       FieldDef('endereco', 'Endereço'),
       FieldDef('data_admissao', 'Data de admissão', type: FieldType.date),
       FieldDef('forma_remuneracao', 'Forma de remuneração',
-          type: FieldType.select, options: [
+          type: FieldType.select, defaultValue: 'Metro cúbico', options: [
         'Diária',
         'Metro cúbico',
         'Árvore',
@@ -195,21 +208,39 @@ final Map<String, EntityDef> kEntities = {
         'Produção fixa',
       ]),
       FieldDef('valor_diaria', 'Valor da diária (R\$)',
-          type: FieldType.decimal, suffix: 'R\$'),
+          type: FieldType.decimal,
+          suffix: 'R\$',
+          dependsOn: 'forma_remuneracao',
+          visibleWhen: const ['Diária']),
       FieldDef('valor_hora', 'Valor por hora (R\$)',
-          type: FieldType.decimal, suffix: 'R\$'),
+          type: FieldType.decimal,
+          suffix: 'R\$',
+          dependsOn: 'forma_remuneracao',
+          visibleWhen: const ['Hora']),
       FieldDef('valor_m3', 'Valor por m³ (R\$)',
-          type: FieldType.decimal, suffix: 'R\$'),
+          type: FieldType.decimal,
+          suffix: 'R\$',
+          dependsOn: 'forma_remuneracao',
+          visibleWhen: const ['Metro cúbico']),
       FieldDef('valor_arvore', 'Valor por árvore (R\$)',
-          type: FieldType.decimal, suffix: 'R\$'),
+          type: FieldType.decimal,
+          suffix: 'R\$',
+          dependsOn: 'forma_remuneracao',
+          visibleWhen: const ['Árvore']),
       FieldDef('valor_producao_fixa', 'Valor produção fixa (R\$)',
-          type: FieldType.decimal, suffix: 'R\$'),
+          type: FieldType.decimal,
+          suffix: 'R\$',
+          dependsOn: 'forma_remuneracao',
+          visibleWhen: const ['Produção fixa']),
       FieldDef('pix', 'Chave PIX'),
       FieldDef('contato_emergencia', 'Contato de emergência'),
-      FieldDef('situacao', 'Situação', type: FieldType.select, options: [
-        'Ativo',
-        'Inativo',
-      ]),
+      FieldDef('situacao', 'Situação',
+          type: FieldType.select,
+          defaultValue: 'Ativo',
+          options: [
+            'Ativo',
+            'Inativo',
+          ]),
     ],
     titleOf: (m) => _s(m, 'nome'),
     subtitleOf: (m) {
@@ -346,11 +377,14 @@ final Map<String, EntityDef> kEntities = {
         'Outro',
       ]),
       FieldDef('modelo', 'Modelo'),
-      FieldDef('situacao', 'Situação', type: FieldType.select, options: [
-        'Disponível',
-        'Em uso',
-        'Manutenção',
-      ]),
+      FieldDef('situacao', 'Situação',
+          type: FieldType.select,
+          defaultValue: 'Disponível',
+          options: [
+            'Disponível',
+            'Em uso',
+            'Manutenção',
+          ]),
     ],
     titleOf: (m) => _s(m, 'nome'),
     subtitleOf: (m) =>
@@ -428,6 +462,7 @@ final Map<String, EntityDef> kEntities = {
           type: FieldType.number, suffix: 'h'),
       const FieldDef('situacao', 'Situação',
           type: FieldType.select,
+          defaultValue: 'Operando',
           options: ['Operando', 'Manutenção', 'Parado']),
     ],
     titleOf: (m) => _s(m, 'nome'),
@@ -473,12 +508,15 @@ final Map<String, EntityDef> kEntities = {
           type: FieldType.decimal, suffix: 'ha'),
       const FieldDef('volume_m3', 'Volume estimado (m³)',
           type: FieldType.decimal, suffix: 'm³'),
-      const FieldDef('situacao', 'Situação', type: FieldType.select, options: [
-        'Em crescimento',
-        'Pronto p/ corte',
-        'Em corte',
-        'Cortado',
-      ]),
+      const FieldDef('situacao', 'Situação',
+          type: FieldType.select,
+          defaultValue: 'Em crescimento',
+          options: [
+            'Em crescimento',
+            'Pronto p/ corte',
+            'Em corte',
+            'Cortado',
+          ]),
     ],
     titleOf: (m) => '${_s(m, 'especie')} • ${_s(m, 'codigo')}',
     subtitleOf: (m) => [
@@ -679,11 +717,20 @@ final Map<String, EntityDef> kEntities = {
         'combinado',
       ]),
       const FieldDef('distancia_km', 'Distância (km)',
-          type: FieldType.decimal, suffix: 'km'),
+          type: FieldType.decimal,
+          suffix: 'km',
+          dependsOn: 'tipo_frete',
+          visibleWhen: ['km']),
       const FieldDef('valor_km', 'Valor por km (R\$)',
-          type: FieldType.decimal, suffix: 'R\$/km'),
+          type: FieldType.decimal,
+          suffix: 'R\$/km',
+          dependsOn: 'tipo_frete',
+          visibleWhen: ['km']),
       const FieldDef('valor_combinado', 'Valor combinado (R\$)',
-          type: FieldType.decimal, suffix: 'R\$'),
+          type: FieldType.decimal,
+          suffix: 'R\$',
+          dependsOn: 'tipo_frete',
+          visibleWhen: ['combinado']),
       const FieldDef('data', 'Data'),
     ],
     titleOf: (m) => _ref(m, 'veiculo', 'nome').isNotEmpty

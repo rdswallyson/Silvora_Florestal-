@@ -205,70 +205,83 @@ class _EntityListScreenState extends State<EntityListScreen> {
             return true;
           }).toList();
 
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: TextField(
-                  onChanged: (v) => setState(() => _query = v),
-                  decoration: InputDecoration(
-                    hintText: 'Buscar ${def.noun}...',
-                    prefixIcon: const Icon(Icons.search),
-                    contentPadding: EdgeInsets.zero,
+          return RefreshIndicator(
+            onRefresh: () async => _reload(),
+            child: CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: TextField(
+                      onChanged: (v) => setState(() => _query = v),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar ${def.noun}...',
+                        prefixIcon: const Icon(Icons.search),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              if (def.table == 'producao')
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _FilterBar(
-                          equipes: _equipesOptions,
-                          funcionarios: _funcionariosOptions,
-                          equipeId: _filtroEquipeId,
-                          funcionarioId: _filtroFuncionarioId,
-                          onEquipeChanged: (v) =>
-                              setState(() => _filtroEquipeId = v),
-                          onFuncionarioChanged: (v) =>
-                              setState(() => _filtroFuncionarioId = v),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.outlined(
-                        onPressed: () => setState(() =>
-                            _modoIndividualProducao = !_modoIndividualProducao),
-                        icon: const Icon(Icons.person_outline),
-                        tooltip: 'Ver por funcionário',
-                      ),
-                    ],
-                  ),
-                ),
-              if (def.headerOf != null && items.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-                  child: def.headerOf!(items),
-                ),
-              Expanded(
-                child: all.isEmpty
-                    ? _EmptyState(def: def, onAdd: () => _openForm())
-                    : RefreshIndicator(
-                        onRefresh: () async => _reload(),
-                        child: ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-                          itemCount: items.length,
-                          itemBuilder: (context, i) => _EntityTile(
-                            def: def,
-                            item: items[i],
-                            onTap: () => _openDetail(items[i]),
-                            onEdit: () => _openForm(items[i]),
-                            onDelete: () => _confirmDelete(items[i]),
+                if (def.table == 'producao')
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _FilterBar(
+                              equipes: _equipesOptions,
+                              funcionarios: _funcionariosOptions,
+                              equipeId: _filtroEquipeId,
+                              funcionarioId: _filtroFuncionarioId,
+                              onEquipeChanged: (v) =>
+                                  setState(() => _filtroEquipeId = v),
+                              onFuncionarioChanged: (v) =>
+                                  setState(() => _filtroFuncionarioId = v),
+                            ),
                           ),
+                          const SizedBox(width: 8),
+                          IconButton.outlined(
+                            onPressed: () => setState(() =>
+                                _modoIndividualProducao =
+                                    !_modoIndividualProducao),
+                            icon: const Icon(Icons.person_outline),
+                            tooltip: 'Ver por funcionário',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (def.headerOf != null && items.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                      child: def.headerOf!(items),
+                    ),
+                  ),
+                if (all.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _EmptyState(def: def, onAdd: () => _openForm()),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        childCount: items.length,
+                        (context, i) => _EntityTile(
+                          def: def,
+                          item: items[i],
+                          onTap: () => _openDetail(items[i]),
+                          onEdit: () => _openForm(items[i]),
+                          onDelete: () => _confirmDelete(items[i]),
                         ),
                       ),
-              ),
-            ],
+                    ),
+                  ),
+              ],
+            ),
           );
         },
       ),
@@ -298,26 +311,33 @@ class _EntityListScreenState extends State<EntityListScreen> {
             return true;
           }).toList();
 
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: TextField(
-                  onChanged: (v) => setState(() => _query = v),
-                  decoration: const InputDecoration(
-                    hintText: 'Buscar participante...',
-                    prefixIcon: Icon(Icons.search),
-                    contentPadding: EdgeInsets.zero,
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: TextField(
+                    onChanged: (v) => setState(() => _query = v),
+                    decoration: const InputDecoration(
+                      hintText: 'Buscar participante...',
+                      prefixIcon: Icon(Icons.search),
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   ),
                 ),
               ),
-              Expanded(
-                child: items.isEmpty
-                    ? const Center(child: Text('Nenhum participante encontrado.'))
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-                        itemCount: items.length,
-                        itemBuilder: (context, i) {
+              if (items.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: Text('Nenhum participante encontrado.')),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      childCount: items.length,
+                      (context, i) {
                           final m = items[i];
                           final f = m['funcionario'] as Map? ?? {};
                           final p = m['producao'] as Map? ?? {};
@@ -341,8 +361,9 @@ class _EntityListScreenState extends State<EntityListScreen> {
                             ),
                           );
                         },
-                      ),
-              ),
+                    ),
+                  ),
+                ),
             ],
           );
         },

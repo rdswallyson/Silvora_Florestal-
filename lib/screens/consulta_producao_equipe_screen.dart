@@ -41,63 +41,69 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
         backgroundColor: BrandColors.forest,
         foregroundColor: Colors.white,
       ),
-      body: Column(
-        children: [
-          Card(
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'RESUMO DO PERÍODO',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: BrandColors.forest),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${_dateFmt.format(dataInicio)} a ${_dateFmt.format(dataFim)}',
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _miniStat('Produções',
-                            '${producoesEquipe.length}'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _miniStat(
-                            'Volume', '${volume.toStringAsFixed(1)} m³'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child:
-                            _miniStat('Árvores', '${arvores.toStringAsFixed(0)}'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _miniStat(
-                            'Total pago', _currency.format(valor), highlight: true),
-                      ),
-                    ],
-                  ),
-                ],
+      body: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Card(
+              margin: const EdgeInsets.all(16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'RESUMO DO PERÍODO',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: BrandColors.forest),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${_dateFmt.format(dataInicio)} a ${_dateFmt.format(dataFim)}',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _miniStat('Produções',
+                              '${producoesEquipe.length}'),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _miniStat(
+                              'Volume', '${volume.toStringAsFixed(1)} m³'),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _miniStat(
+                              'Árvores', '${arvores.toStringAsFixed(0)}'),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _miniStat('Total pago', _currency.format(valor),
+                              highlight: true),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-          Expanded(
-            child: producoesEquipe.isEmpty
-                ? const Center(
-                    child: Text('Nenhuma produção no período selecionado.'))
-                : ListView.builder(
-                    padding:
-                        const EdgeInsets.only(left: 16, right: 16, bottom: 100),
-                    itemCount: producoesEquipe.length,
-                    itemBuilder: (context, index) {
+          if (producoesEquipe.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                  child: Text('Nenhuma produção no período selecionado.')),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 100),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  childCount: producoesEquipe.length,
+                  (context, index) {
                       final p = producoesEquipe[index];
                       final data = _parseDate(p['data']);
                       final talhao = _ref(p, 'talhao', 'codigo');
@@ -173,8 +179,9 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
                         ),
                       );
                     },
-                  ),
-          ),
+                ),
+              ),
+            ),
         ],
       ),
     );

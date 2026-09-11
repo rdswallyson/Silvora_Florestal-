@@ -46,41 +46,47 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
         backgroundColor: BrandColors.forest,
         foregroundColor: Colors.white,
       ),
-      body: Column(
-        children: [
-          Card(
-            margin: const EdgeInsets.all(16),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'RESUMO DO PERÍODO',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: BrandColors.forest),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${_dateFmt.format(dataInicio)} a ${_dateFmt.format(dataFim)}',
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildResumoStats(forma, volume, arvores, horas, valor),
-                ],
+      body: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Card(
+              margin: const EdgeInsets.all(16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'RESUMO DO PERÍODO',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: BrandColors.forest),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${_dateFmt.format(dataInicio)} a ${_dateFmt.format(dataFim)}',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildResumoStats(forma, volume, arvores, horas, valor),
+                  ],
+                ),
               ),
             ),
           ),
-          Expanded(
-            child: producoesFuncionario.isEmpty
-                ? const Center(
-                    child: Text('Nenhuma produção no período selecionado.'))
-                : ListView.builder(
-                    padding:
-                        const EdgeInsets.only(left: 16, right: 16, bottom: 100),
-                    itemCount: producoesFuncionario.length,
-                    itemBuilder: (context, index) {
+          if (producoesFuncionario.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                  child: Text('Nenhuma produção no período selecionado.')),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 100),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  childCount: producoesFuncionario.length,
+                  (context, index) {
                       final pf = producoesFuncionario[index];
                       final p = pf['producao'] is Map
                           ? pf['producao'] as Map
@@ -138,8 +144,9 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
                         ),
                       );
                     },
-                  ),
-          ),
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/db_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/common.dart';
 import 'consulta_producao_equipe_screen.dart';
 import 'consulta_producao_funcionario_screen.dart';
 
@@ -239,31 +238,35 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Column(
-        children: [
-          _buildFiltros(),
-          TabBar(
-            controller: _tabController,
-            labelColor: BrandColors.forest,
-            unselectedLabelColor: Colors.grey,
-            indicatorColor: BrandColors.forest,
-            tabs: const [
-              Tab(icon: Icon(Icons.person_outline), text: 'Por funcionário'),
-              Tab(icon: Icon(Icons.groups_outlined), text: 'Por equipe'),
-            ],
-          ),
-          Expanded(
-            child: _carregando
-                ? const Center(child: CircularProgressIndicator())
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildPorFuncionario(),
-                      _buildPorEquipe(),
-                    ],
-                  ),
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          SliverToBoxAdapter(child: _buildFiltros()),
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _TabBarHeaderDelegate(
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              child: TabBar(
+                controller: _tabController,
+                labelColor: BrandColors.forest,
+                unselectedLabelColor: Colors.grey,
+                indicatorColor: BrandColors.forest,
+                tabs: const [
+                  Tab(icon: Icon(Icons.person_outline), text: 'Por funcionário'),
+                  Tab(icon: Icon(Icons.groups_outlined), text: 'Por equipe'),
+                ],
+              ),
+            ),
           ),
         ],
+        body: _carregando
+            ? const Center(child: CircularProgressIndicator())
+            : TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildPorFuncionario(),
+                  _buildPorEquipe(),
+                ],
+              ),
       ),
     );
   }
@@ -656,4 +659,33 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
     return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
         .toUpperCase();
   }
+}
+
+/// Delegate que mantém o TabBar fixo durante a rolagem do conteúdo.
+class _TabBarHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar child;
+  final Color backgroundColor;
+
+  _TabBarHeaderDelegate({required this.child, required this.backgroundColor});
+
+  @override
+  double get minExtent => 62;
+
+  @override
+  double get maxExtent => 62;
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: backgroundColor,
+      height: 62,
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_TabBarHeaderDelegate oldDelegate) =>
+      oldDelegate.child != child ||
+      oldDelegate.backgroundColor != backgroundColor;
 }

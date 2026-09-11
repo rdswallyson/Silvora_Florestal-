@@ -13,21 +13,23 @@ class _ListScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          child: TextField(
-            decoration: InputDecoration(
-              hintText: searchHint ?? 'Buscar...',
-              prefixIcon: const Icon(Icons.search),
-              contentPadding: EdgeInsets.zero,
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: searchHint ?? 'Buscar...',
+                prefixIcon: const Icon(Icons.search),
+                contentPadding: EdgeInsets.zero,
+              ),
             ),
           ),
         ),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+          sliver: SliverList.separated(
             itemCount: count,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: itemBuilder,

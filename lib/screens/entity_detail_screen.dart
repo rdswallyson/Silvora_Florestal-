@@ -86,11 +86,10 @@ class EntityDetailScreen extends StatelessWidget {
 
   List<Widget> _buildDefaultFields() {
     return def.fields
-        .where((f) => f.type != FieldType.hidden)
         .map((f) {
           dynamic raw;
-          if (f.refTable != null) {
-            raw = _ref(item, f.refTable!, f.refLabelOf ?? 'nome');
+          if (f.refTable != null && f.refLabelOf != null) {
+            raw = f.refLabelOf!(_mapRef(item, f.refTable!));
           } else {
             raw = item[f.key];
           }
@@ -100,6 +99,12 @@ class EntityDetailScreen extends StatelessWidget {
         })
         .cast<Widget>()
         .toList();
+  }
+
+  Map<String, dynamic> _mapRef(Map<String, dynamic> item, String alias) {
+    final v = item[alias];
+    if (v is Map) return v.cast<String, dynamic>();
+    return <String, dynamic>{};
   }
 
   String _formatValue(dynamic raw, FieldDef f) {
@@ -283,7 +288,7 @@ class _FuncionarioDetails extends StatelessWidget {
               const SizedBox(height: 8),
               ...equipamentos.map((e) => _DetailRow(
                   label: _s(e['nome']),
-                  value: '${_s(e['tipo'])} • ${_s(e['situacao']}')),
+                  value: '${_s(e['tipo'])} • ${_s(e['situacao'])}')),
               const SizedBox(height: 16),
             ],
             if (producao.isNotEmpty) ...[

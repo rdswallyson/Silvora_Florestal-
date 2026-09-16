@@ -53,13 +53,43 @@ class _EntityListScreenState extends State<EntityListScreen> {
     } catch (_) {}
   }
 
+  bool _producaoTemParticipantePago(Map<String, dynamic> producao) {
+    final pfs = producao['producao_funcionarios'];
+    if (pfs is! List) return false;
+    return pfs.any((pf) => pf is Map && pf['pago'] == true);
+  }
+
+  Future<void> _abrirEdicaoProducao(Map<String, dynamic> item) async {
+    if (_producaoTemParticipantePago(item)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Produção com pagamento fechado. Reabra o fechamento para editar.'),
+        ),
+      );
+      return;
+    }
+    await _openForm(item);
+  }
+
+  Future<void> _confirmDeleteProducao(Map<String, dynamic> item) async {
+    if (_producaoTemParticipantePago(item)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Produção com pagamento fechado. Reabra o fechamento para excluir.'),
+        ),
+      );
+      return;
+    }
+    await _confirmDelete(item);
+  }
+
   void _reload() {
     setState(() {
       _future = Db.list(def.table, select: def.selectQuery);
       if (def.table == 'producao') {
         _futureIndividual = Db.list('producao_funcionarios',
             select:
-                '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao), producao:producao!producao_id(data, talhao:talhao_id(codigo), equipe:equipe_id(nome))');
+                '*, pago, data_pagamento, fechamento_id, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao), producao:producao!producao_id(data, talhao:talhao_id(codigo), equipe:equipe_id(nome))');
       }
     });
   }
@@ -277,8 +307,12 @@ class _EntityListScreenState extends State<EntityListScreen> {
                           def: def,
                           item: items[i],
                           onTap: () => _openDetail(items[i]),
-                          onEdit: () => _openForm(items[i]),
-                          onDelete: () => _confirmDelete(items[i]),
+                          onEdit: () => def.table == 'producao'
+                              ? _abrirEdicaoProducao(items[i])
+                              : _openForm(items[i]),
+                          onDelete: () => def.table == 'producao'
+                              ? _confirmDeleteProducao(items[i])
+                              : _confirmDelete(items[i]),
                         ),
                       ),
                     ),

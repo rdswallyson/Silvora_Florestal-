@@ -105,6 +105,19 @@ String _s(Map m, String k) => (m[k] ?? '').toString();
 double _d(Map m, String k) => double.tryParse('${m[k]}') ?? 0;
 int _i(Map m, String k) => int.tryParse('${m[k]}'.split('.').first) ?? 0;
 
+bool _temProducaoPaga(Map m) {
+  final pfs = m['producao_funcionarios'];
+  if (pfs is! List) return false;
+  return pfs.isNotEmpty && pfs.every((pf) => pf is Map && pf['pago'] == true);
+}
+
+bool _temProducaoParcial(Map m) {
+  final pfs = m['producao_funcionarios'];
+  if (pfs is! List) return false;
+  final pagos = pfs.where((pf) => pf is Map && pf['pago'] == true).length;
+  return pagos > 0 && pagos < pfs.length;
+}
+
 /// Lê o valor de um relacionamento embutido. Ex: _ref(m,'lider','nome').
 String _ref(Map m, String alias, String field) {
   final v = m[alias];
@@ -635,6 +648,8 @@ final Map<String, EntityDef> kEntities = {
       _s(m, 'data'),
       _s(m, 'tipo_producao'),
       if (_i(m, 'total_arvores') > 0) '${_i(m, 'total_arvores')} árvores',
+      if (_temProducaoPaga(m)) 'Pago',
+      if (_temProducaoParcial(m)) 'Parcial',
     ].where((e) => e.isNotEmpty).join(' • '),
     leadingOf: (m) => _iconAvatar(Icons.grass, BrandColors.forest),
     trailingOf: (m) => Text('${_d(m, 'volume_total').toStringAsFixed(1)} m³',
@@ -664,7 +679,7 @@ final Map<String, EntityDef> kEntities = {
     noun: 'participante',
     icon: Icons.person_outline,
     selectQuery:
-        '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao), producao:producao!producao_id(data, talhao:talhao_id(codigo), equipe:equipe_id(nome))',
+        '*, pago, data_pagamento, fechamento_id, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao), producao:producao!producao_id(data, talhao:talhao_id(codigo), equipe:equipe_id(nome))',
     fields: const [],
     titleOf: (m) => _ref(m, 'funcionario', 'nome').isNotEmpty
         ? _ref(m, 'funcionario', 'nome')
@@ -678,6 +693,9 @@ final Map<String, EntityDef> kEntities = {
     ].where((e) => e.isNotEmpty).join(' • '),
     leadingOf: (m) => _iconAvatar(Icons.person, BrandColors.forest),
     trailingOf: (m) {
+      if (m['pago'] == true) {
+        return const StatusChip('Pago', BrandColors.success);
+      }
       final participou = m['participou'] ?? true;
       if (participou == true) return null;
       return const StatusChip('Não participou', BrandColors.alert);

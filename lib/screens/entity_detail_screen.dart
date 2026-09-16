@@ -100,6 +100,8 @@ class EntityDetailScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
+            if (def.table == 'producao') _buildProducaoStatusHeader(item),
+            if (def.table == 'producao') const SizedBox(height: 12),
             Text('INFORMAÇÕES',
                 style: theme.textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.w800,
@@ -204,7 +206,7 @@ class _FuncionarioDetails extends StatelessWidget {
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
         Db.list('producao_funcionarios',
-            select: '*, producao:producao!producao_id(*, talhao:talhoes!talhao_id(codigo), equipe:equipes!equipe_id(nome))')
+            select: '*, pago, data_pagamento, fechamento_id, producao:producao!producao_id(*, talhao:talhoes!talhao_id(codigo), equipe:equipes!equipe_id(nome))')
             .then((l) => l.where((m) => '${m['funcionario_id']}' == funcionarioId).toList()),
         Db.list('equipes',
             select: '*, lider:funcionarios!lider_id(nome), veiculo:veiculos!veiculo_id(nome), membros:equipe_membros(funcionario_id, funcionarios!funcionario_id(nome))')
@@ -226,6 +228,9 @@ class _FuncionarioDetails extends StatelessWidget {
         final equipamentos = ((snap.data?[2] as List?) ?? []).cast<Map<String, dynamic>>();
 
         final totalReceber = producao.fold<double>(0, (s, m) => s + _d(m, 'valor_total'));
+        final totalPago = producao.where((m) => m['pago'] == true).fold<double>(
+            0, (s, m) => s + _d(m, 'valor_total'));
+        final totalPendente = totalReceber - totalPago;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -245,8 +250,12 @@ class _FuncionarioDetails extends StatelessWidget {
                             'R\$ ${totalReceber.toStringAsFixed(2)}', Icons.payments, BrandColors.success)),
                     const SizedBox(width: 12),
                     Expanded(
-                        child: _MiniStat('Registros',
-                            '${producao.length}', Icons.list_alt, BrandColors.info)),
+                        child: _MiniStat('Pago',
+                            'R\$ ${totalPago.toStringAsFixed(2)}', Icons.check_circle, BrandColors.success)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: _MiniStat('Pendente',
+                            'R\$ ${totalPendente.toStringAsFixed(2)}', Icons.pending, BrandColors.info)),
                   ],
                 ),
               ),
@@ -281,9 +290,10 @@ class _FuncionarioDetails extends StatelessWidget {
               const SizedBox(height: 8),
               ...producao.take(5).map((p) {
                 final prod = p['producao'] as Map? ?? {};
+                final pago = p['pago'] == true;
                 return _DetailRow(
                   label: '${_ref(prod, 'talhao', 'codigo')}',
-                  value: '${_s(prod['data'])} • ${_d(prod, 'volume_total').toStringAsFixed(1)} m³ • R\$ ${_d(p, 'valor_total').toStringAsFixed(2)}',
+                  value: '${_s(prod['data'])} • ${_d(prod, 'volume_total').toStringAsFixed(1)} m³ • R\$ ${_d(p, 'valor_total').toStringAsFixed(2)}${pago ? ' • Pago' : ''}',
                 );
               }),
             ],
@@ -359,7 +369,7 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
     if (id == null || id.isEmpty) return;
     try {
       final rows = await Db.list('producao_funcionarios',
-          select: '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, valor_diaria, valor_hora, valor_m3, valor_arvore, valor_producao_fixa)')
+          select: '*, pago, data_pagamento, fechamento_id, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, valor_diaria, valor_hora, valor_m3, valor_arvore, valor_producao_fixa)')
           .then((l) => l.where((m) => '${m['producao_id']}' == id).cast<Map<String, dynamic>>().toList());
       if (mounted) setState(() => _integrantes = rows);
     } catch (_) {}
@@ -450,10 +460,24 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
                           ],
                         ),
                       ),
-                      Text('R\$ ${valorInd.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: BrandColors.forest)),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('R\$ ${valorInd.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: BrandColors.forest)),
+                          if (m['pago'] == true)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 2),
+                              child: Text('Pago',
+                                  style: TextStyle(
+                                      color: BrandColors.success,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -616,9 +640,46 @@ class _ClienteDetailsState extends State<_ClienteDetails> {
       ],
     );
   }
+
+  Widget _buildProducaoStatusHeader(Map<String, dynamic> producao) {
+    final pfs = producao['producao_funcionarios'];
+    if (pfs is! List) return const SizedBox.shrink();
+    final pagos = pfs.where((pf) => pf is Map && pf['pago'] == true).length;
+    if (pagos == 0) return const SizedBox.shrink();
+
+    final todosPagos = pagos == pfs.length;
+    final texto = todosPagos
+        ? 'Pagamento fechado para todos os participantes'
+        : 'Pagamento fechado para $pagos de ${pfs.length} participante(s)';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: BrandColors.success.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: BrandColors.success.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock, color: BrandColors.success, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              texto,
+              style: const TextStyle(
+                color: BrandColors.success,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-String _s(dynamic v) => v?.toString() ?? '';
 double _d(Map m, String k) => double.tryParse('${m[k]}') ?? 0;
 int _i(Map m, String k) => int.tryParse('${m[k]}'.split('.').first) ?? 0;
 String _ref(Map m, String alias, String field) {

@@ -176,8 +176,8 @@ class ProducaoCalculoService {
     return producaoId;
   }
 
-  /// Atualiza o registro de produção e recria os participantes calculados.
-  /// Retorna o ID da produção atualizada.
+  /// Atualiza o registro de produção e sincroniza participantes calculados,
+  /// preservando registros já pagos.
   static Future<String> atualizarProducao({
     required String producaoId,
     required String tipoProducao,
@@ -190,7 +190,23 @@ class ProducaoCalculoService {
     required String observacoes,
     required List<Map<String, dynamic>> participantes,
   }) async {
-    // 1. Atualiza produção principal
+    // 1. Carrega participantes atuais para preservar os pagos.
+    final existentesRes = await Db.instance.client
+        .from('producao_funcionarios')
+        .select('id, funcionario_id, pago, fechamento_id')
+        .eq('producao_id', producaoId);
+    final existentes = (existentesRes as List).cast<Map<String, dynamic>>();
+
+    final pagos = existentes.where((e) => e['pago'] == true).toList();
+    if (pagos.isNotEmpty) {
+      // Só permite alterar observações quando existe participante pago.
+      await Db.update('producao', producaoId, {
+        'observacoes': observacoes,
+      });
+      return producaoId;
+    }
+
+    // 2. Atualiza produção principal.
     await Db.update('producao', producaoId, {
       'tipo_producao': tipoProducao,
       'funcionario_id': funcionarioId,
@@ -202,26 +218,50 @@ class ProducaoCalculoService {
       'observacoes': observacoes,
     });
 
-    // 2. Remove participantes antigos
-    await Db.instance.client
-        .from('producao_funcionarios')
-        .delete()
-        .eq('producao_id', producaoId);
-
-    // 3. Recria participantes calculados
+    // 3. Mapa dos novos participantes selecionados.
+    final selecionados = <String, Map<String, dynamic>>{};
     for (final p in participantes) {
-      final funcionario = p['funcionario'] as Map<String, dynamic>;
       final selecionado = p['selecionado'] as bool;
-
       if (!selecionado) continue;
+      final funcionario = p['funcionario'] as Map<String, dynamic>;
+      final fid = funcionario['id'].toString();
+      selecionados[fid] = p;
+    }
 
+    // 4. Atualiza os existentes não pagos que continuam selecionados.
+    for (final ex in existentes.where((e) => e['pago'] != true)) {
+      final fid = ex['funcionario_id'].toString();
+      if (selecionados.containsKey(fid)) {
+        final p = selecionados[fid]!;
+        final funcionario = p['funcionario'] as Map<String, dynamic>;
+        final calculo = calcular(
+          funcionario: funcionario,
+          volume: volume,
+          arvores: arvores,
+          horas: _parseDouble(p['horas'] ?? 1),
+        );
+        await Db.instance.client
+            .from('producao_funcionarios')
+            .update(calculo.toJson())
+            .eq('id', ex['id']);
+        selecionados.remove(fid);
+      } else {
+        await Db.instance.client
+            .from('producao_funcionarios')
+            .delete()
+            .eq('id', ex['id']);
+      }
+    }
+
+    // 5. Insere os novos participantes.
+    for (final p in selecionados.values) {
+      final funcionario = p['funcionario'] as Map<String, dynamic>;
       final calculo = calcular(
         funcionario: funcionario,
         volume: volume,
         arvores: arvores,
         horas: _parseDouble(p['horas'] ?? 1),
       );
-
       await Db.insert('producao_funcionarios', {
         'producao_id': producaoId,
         'funcionario_id': funcionario['id'].toString(),

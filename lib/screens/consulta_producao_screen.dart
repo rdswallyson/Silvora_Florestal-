@@ -72,7 +72,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
         final pfRes = await c
             .from('producao_funcionarios')
             .select(
-                '*, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, situacao), producao:producao!producao_id(data, volume_total, total_arvores, talhao:talhao_id(codigo), equipe:equipe_id(nome))')
+                '*, pago, data_pagamento, fechamento_id, funcionario:funcionarios!funcionario_id(nome, forma_remuneracao, situacao), producao:producao!producao_id(data, volume_total, total_arvores, talhao:talhao_id(codigo), equipe:equipe_id(nome))')
             .inFilter('producao_id', producaoIds)
             .order('created_at', ascending: false);
         pfNoPeriodo = (pfRes as List).cast<Map<String, dynamic>>();
@@ -173,6 +173,13 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
       valor += _d(pf, 'valor_total');
     }
 
+    final pagos = pfs.where((pf) => pf['pago'] == true).length;
+    final status = pagos == 0
+        ? 'Pendente'
+        : pagos == pfs.length
+            ? 'Pago'
+            : 'Parcial';
+
     return {
       'quantidade': pfs.length,
       'volume': volume,
@@ -180,7 +187,117 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
       'horas': horas,
       'valor': valor,
       'forma': forma,
+      'pagos': pagos,
+      'status': status,
+      'fechamentoId': _fechamentoIdDoFuncionario(id),
     };
+  }
+
+  String? _fechamentoIdDoFuncionario(String funcionarioId) {
+    final pfs = _producoesDoFuncionario(funcionarioId).where((pf) => pf['pago'] == true);
+    if (pfs.isEmpty) return null;
+    return pfs.first['fechamento_id']?.toString();
+  }
+
+  Future<void> _fecharPagamento(Map<String, dynamic> funcionario) async {
+    if (_dataInicio == null || _dataFim == null) return;
+    final id = '${funcionario['id']}';
+    final totais = _totaisFuncionario(funcionario);
+    if (totais['status'] == 'Pago') return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Marcar como pago'),
+        content: Text(
+          'Fechamento para ${_s(funcionario, 'nome')} no período '
+          '${DateFormat('dd/MM/yyyy').format(_dataInicio!)} a ${DateFormat('dd/MM/yyyy').format(_dataFim!)}.\n\n'
+          'Registros: ${totais['quantidade']}\n'
+          'Valor total: ${_currency.format(totais['valor'])}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Confirmar pagamento'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _carregando = true);
+    try {
+      await Db.rpc<dynamic>(
+        'fechar_pagamento_funcionario',
+        {
+          'p_funcionario_id': id,
+          'p_inicio': DateFormat('yyyy-MM-dd').format(_dataInicio!),
+          'p_fim': DateFormat('yyyy-MM-dd').format(_dataFim!),
+        },
+      );
+      await _carregar();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fechamento realizado com sucesso.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _carregando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao fechar pagamento: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _reabrirFechamento(String? fechamentoId) async {
+    if (fechamentoId == null || fechamentoId.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Reabrir fechamento'),
+        content: const Text(
+          'Isso desfaz o fechamento do período e libera edição dos registros. Deseja continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Reabrir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _carregando = true);
+    try {
+      await Db.rpc<dynamic>(
+        'reabrir_pagamento_funcionario',
+        {'p_fechamento_id': fechamentoId},
+      );
+      await _carregar();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fechamento reaberto com sucesso.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _carregando = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao reabrir fechamento: $e')),
+        );
+      }
+    }
   }
 
   Map<String, dynamic> _totaisEquipe(String equipeId) {
@@ -458,6 +575,8 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                   ),
                   const SizedBox(height: 12),
                   _buildStatsRow(totais, forma),
+                  const SizedBox(height: 12),
+                  _buildAcaoFechamento(f, totais),
                 ],
               ),
             ),
@@ -613,6 +732,34 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
           ],
         );
     }
+  }
+
+  Widget _buildAcaoFechamento(
+      Map<String, dynamic> funcionario, Map<String, dynamic> totais) {
+    final status = totais['status']?.toString() ?? 'Pendente';
+    final fechamentoId = totais['fechamentoId']?.toString();
+
+    if (status == 'Pago') {
+      return OutlinedButton.icon(
+        onPressed: () => _reabrirFechamento(fechamentoId),
+        icon: const Icon(Icons.lock_open_outlined, size: 18),
+        label: const Text('Reabrir fechamento'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: BrandColors.success,
+          side: const BorderSide(color: BrandColors.success),
+        ),
+      );
+    }
+
+    final temValor = (totais['quantidade'] as int) > 0;
+    if (!temValor) return const SizedBox.shrink();
+
+    return FilledButton.icon(
+      onPressed: () => _fecharPagamento(funcionario),
+      icon: const Icon(Icons.payments_outlined, size: 18),
+      label: const Text('Marcar como pago'),
+      style: FilledButton.styleFrom(backgroundColor: BrandColors.forest),
+    );
   }
 
   Widget _miniStat(String label, String value, {bool highlight = false}) {

@@ -119,13 +119,8 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
                                           fontSize: 15),
                                     ),
                                   ),
-                                  Text(
-                                    _currency.format(valorPf),
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        color: BrandColors.forest,
-                                        fontSize: 16),
-                                  ),
+                                  if (pf['pago'] == true)
+                                    const StatusChip('Pago', BrandColors.success),
                                 ],
                               ),
                               const SizedBox(height: 8),
@@ -137,7 +132,24 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
                                     'Equipe: $equipe'),
                               _linhaInfo(Icons.paid_outlined,
                                   '$forma • ${qtd.toStringAsFixed(0)} un'),
+                              if (pf['pago'] == true)
+                                _linhaInfo(Icons.calendar_today_outlined,
+                                    'Pago em: ${_fmtDataPagamento(pf['data_pagamento'])}'),
                               const Divider(height: 24),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'Valor: ${_currency.format(valorPf)}',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          color: BrandColors.forest,
+                                          fontSize: 15),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
                               _buildItemResumo(forma, volumeP, arvoresP, qtd),
                             ],
                           ),
@@ -269,6 +281,16 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _fmtDataPagamento(dynamic value) {
+    if (value == null) return '-';
+    try {
+      final dt = DateTime.parse(value.toString());
+      return _dateFmt.format(dt);
+    } catch (_) {
+      return value.toString();
+    }
   }
 
   static String _s(Map m, String k) => (m[k] ?? '').toString();

@@ -80,6 +80,12 @@ class Db {
     await _c.from(table).delete().eq('id', id);
   }
 
+  /// Executa uma RPC do Supabase.
+  static Future<T> rpc<T>(String fn, Map<String, dynamic> params) async {
+    final res = await _c.rpc(fn, params: params);
+    return res as T;
+  }
+
   /// Sincroniza uma relação muitos-para-muitos numa tabela de ligação.
   /// Ex.: equipe_membros (equipe_id -> funcionario_id).
   static Future<void> setJoin({

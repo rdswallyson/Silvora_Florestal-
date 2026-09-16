@@ -43,6 +43,10 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
 
   bool get _isEditing => widget.existing != null;
 
+  bool _temParticipantePago = false;
+
+  bool get _camposBloqueados => _isEditing && _temParticipantePago;
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +75,10 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
       _arvoresCtrl.text = _fmtInt(existing['total_arvores']);
       _obsCtrl.text = existing['observacoes']?.toString() ?? '';
 
+      if (_producaoId != null) {
+        await _verificarParticipantesPagos();
+      }
+
       if (_tipoProducao == 'Equipe' && _equipeId != null) {
         await _carregarParticipantes();
         await _marcarParticipantesExistentes();
@@ -79,6 +87,22 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
       debugPrint('Erro ao carregar edição: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _verificarParticipantesPagos() async {
+    if (_producaoId == null) return;
+    try {
+      final res = await Db.instance.client
+          .from('producao_funcionarios')
+          .select('id')
+          .eq('producao_id', _producaoId!)
+          .eq('pago', true)
+          .limit(1);
+      final rows = (res as List).cast<Map<String, dynamic>>();
+      if (mounted) setState(() => _temParticipantePago = rows.isNotEmpty);
+    } catch (e) {
+      debugPrint('Erro ao verificar participantes pagos: $e');
     }
   }
 
@@ -352,6 +376,10 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_camposBloqueados) ...[
+                      _buildBannerBloqueado(),
+                      const SizedBox(height: 16),
+                    ],
                     _buildTipoProducao(),
                     const SizedBox(height: 20),
                     if (_tipoProducao == 'Individual')
@@ -366,6 +394,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
                     if (_mostrarHorasIndividual) ...[
                       TextFormField(
                         controller: _horasCtrl,
+                        enabled: !_camposBloqueados,
                         decoration: const InputDecoration(
                           labelText: 'Horas trabalhadas',
                           suffixText: 'h',
@@ -387,6 +416,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
                         children: [
                           TextFormField(
                             controller: _volumeCtrl,
+                            enabled: !_camposBloqueados,
                             decoration: const InputDecoration(
                               labelText: 'Volume total (m³)',
                               suffixText: 'm³',
@@ -399,6 +429,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
                           ),
                           TextFormField(
                             controller: _arvoresCtrl,
+                            enabled: !_camposBloqueados,
                             decoration: const InputDecoration(
                               labelText: 'Total de árvores',
                             ),
@@ -423,7 +454,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: _saving ? null : _salvar,
+                        onPressed: (_saving || _camposBloqueados) ? null : _salvar,
                         child: _saving
                             ? const SizedBox(
                                 height: 20,
@@ -433,13 +464,43 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text('Salvar Produção'),
+                            : Text(_camposBloqueados
+                                ? 'Salvar apenas observações'
+                                : 'Salvar Produção'),
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+    );
+  }
+
+  Widget _buildBannerBloqueado() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: BrandColors.success.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: BrandColors.success.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: const [
+          Icon(Icons.lock, color: BrandColors.success, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Produção com pagamento fechado. Apenas observações podem ser alteradas.',
+              style: TextStyle(
+                color: BrandColors.success,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -455,14 +516,16 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
             ButtonSegment(value: 'Equipe', label: Text('Equipe')),
           ],
           selected: <String>{_tipoProducao},
-          onSelectionChanged: (set) {
-            setState(() {
-              _tipoProducao = set.first;
-              _funcionarioId = null;
-              _equipeId = null;
-              _participantes = [];
-            });
-          },
+          onSelectionChanged: _camposBloqueados
+              ? null
+              : (set) {
+                  setState(() {
+                    _tipoProducao = set.first;
+                    _funcionarioId = null;
+                    _equipeId = null;
+                    _participantes = [];
+                  });
+                },
         ),
       ],
     );
@@ -479,7 +542,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
           child: Text(label, overflow: TextOverflow.ellipsis),
         );
       }).toList(),
-      onChanged: (v) => setState(() => _funcionarioId = v),
+      onChanged: _camposBloqueados ? null : (v) => setState(() => _funcionarioId = v),
       validator: (v) => v == null ? 'Selecione' : null,
     );
   }
@@ -497,10 +560,12 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
               child: Text(e['nome']?.toString() ?? ''),
             );
           }).toList(),
-          onChanged: (v) async {
-            setState(() => _equipeId = v);
-            await _carregarParticipantes();
-          },
+          onChanged: _camposBloqueados
+              ? null
+              : (v) async {
+                  setState(() => _equipeId = v);
+                  await _carregarParticipantes();
+                },
           validator: (v) => v == null ? 'Selecione' : null,
         ),
         if (_participantes.isNotEmpty) ...[
@@ -536,7 +601,7 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
       children: [
         CheckboxListTile(
           value: selecionado,
-          onChanged: (v) => setState(() => p['selecionado'] = v == true),
+          onChanged: _camposBloqueados ? null : (v) => setState(() => p['selecionado'] = v == true),
           title: Text(f['nome']?.toString() ?? ''),
           subtitle: info.isNotEmpty ? Text(info) : null,
           controlAffinity: ListTileControlAffinity.leading,
@@ -580,22 +645,24 @@ class _ProducaoFormScreenState extends State<ProducaoFormScreen> {
           child: Text(t['codigo']?.toString() ?? ''),
         );
       }).toList(),
-      onChanged: (v) => setState(() => _talhaoId = v),
+      onChanged: _camposBloqueados ? null : (v) => setState(() => _talhaoId = v),
       validator: (v) => v == null ? 'Selecione' : null,
     );
   }
 
   Widget _buildDataField() {
     return InkWell(
-      onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: _data ?? DateTime.now(),
-          firstDate: DateTime(2020),
-          lastDate: DateTime(2100),
-        );
-        if (picked != null) setState(() => _data = picked);
-      },
+      onTap: _camposBloqueados
+          ? null
+          : () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _data ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2100),
+              );
+              if (picked != null) setState(() => _data = picked);
+            },
       child: InputDecorator(
         decoration: const InputDecoration(labelText: 'Data'),
         child: Text(

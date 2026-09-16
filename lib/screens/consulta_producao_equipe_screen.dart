@@ -148,6 +148,7 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
                               if (participantes.isNotEmpty)
                                 _linhaInfo(Icons.groups_outlined,
                                     'Participantes: ${participantes.join(', ')}'),
+                              _buildStatusParticipantes(pfs),
                               const Divider(height: 24),
                               Row(
                                 children: [
@@ -219,6 +220,35 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
                 style: const TextStyle(fontSize: 13),
                 overflow: TextOverflow.ellipsis),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusParticipantes(Iterable<Map<String, dynamic>> pfs) {
+    final pagos = pfs.where((pf) => pf['pago'] == true).length;
+    if (pagos == 0) return const SizedBox.shrink();
+    if (pagos == pfs.length) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Row(
+          children: const [
+            Icon(Icons.check_circle, color: BrandColors.success, size: 16),
+            SizedBox(width: 6),
+            Text('Todos os participantes pagos',
+                style: TextStyle(color: BrandColors.success, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: BrandColors.alert, size: 16),
+          const SizedBox(width: 6),
+          Text('$pagos de ${pfs.length} participante(s) pago(s)',
+              style: const TextStyle(color: BrandColors.alert, fontSize: 12)),
         ],
       ),
     );

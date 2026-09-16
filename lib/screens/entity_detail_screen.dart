@@ -4,6 +4,15 @@ import '../services/db_service.dart';
 import '../services/cliente_preco_service.dart';
 import '../theme/app_theme.dart';
 
+String _s(dynamic v) => v?.toString() ?? '';
+double _d(Map m, String k) => double.tryParse('${m[k]}') ?? 0;
+int _i(Map m, String k) => int.tryParse('${m[k]}'.split('.').first) ?? 0;
+String _ref(Map m, String alias, String field) {
+  final v = m[alias];
+  if (v is Map && v[field] != null) return v[field].toString();
+  return '';
+}
+
 /// Tela de detalhes de um registro. Para Funcionário, exibe produção,
 /// equipes e equipamentos vinculados.
 class EntityDetailScreen extends StatelessWidget {
@@ -22,169 +31,162 @@ class EntityDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final leading = def.leadingOf?.call(item) ??
-        CircleAvatar(
-          radius: 32,
-          backgroundColor: BrandColors.forest.withValues(alpha: 0.15),
-          child: Icon(def.icon, color: BrandColors.forest, size: 32),
-        );
-    final trailing = def.trailingOf?.call(item);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(def.noun.toUpperCase()),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Editar',
-            onPressed: onEdit,
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: 'Excluir',
-            onPressed: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (c) => AlertDialog(
-                  title: const Text('Excluir registro'),
-                  content: Text('Deseja excluir "${def.titleOf(item)}"?'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(c, false),
-                        child: const Text('Cancelar')),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                          backgroundColor: BrandColors.danger),
-                      onPressed: () => Navigator.pop(c, true),
-                      child: const Text('Excluir'),
-                    ),
-                  ],
-                ),
-              );
-              if (ok == true) onDelete();
-            },
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
+    final custom = _buildCustomDetail();
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.65,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      builder: (_, scrollCtrl) => SingleChildScrollView(
+        controller: scrollCtrl,
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    leading,
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(def.titleOf(item),
-                              style: theme.textTheme.titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.w800)),
-                          const SizedBox(height: 4),
-                          Text(def.subtitleOf(item),
-                              style: TextStyle(
-                                  color: theme.colorScheme.onSurface
-                                      .withValues(alpha: 0.7))),
-                        ],
-                      ),
-                    ),
-                    if (trailing != null) trailing,
-                  ],
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    def.titleOf(item),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: BrandColors.forest,
+                        ),
+                  ),
                 ),
-              ),
+                if (def.table != 'producao_funcionarios') ...[
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: BrandColors.forest),
+                    onPressed: onEdit,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: BrandColors.alert),
+                    onPressed: onDelete,
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 24),
-            if (def.table == 'producao') _buildProducaoStatusHeader(item),
-            if (def.table == 'producao') const SizedBox(height: 12),
-            Text('INFORMAÇÕES',
-                style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: BrandColors.forest)),
-            const SizedBox(height: 12),
-            ...def.fields.where((f) {
-              if (def.table != 'producao') return true;
-              final tipo = item['tipo_producao']?.toString();
-              if (f.key == 'funcionario_id') return tipo == 'Individual';
-              if (f.key == 'equipe_id') return tipo == 'Equipe';
-              return true;
-            }).map((f) {
-              final value = _fieldValue(f);
-              return _DetailRow(label: f.label, value: value);
-            }),
-            const SizedBox(height: 24),
-            if (def.table == 'funcionarios')
-              _FuncionarioDetails(funcionarioId: '${item['id']}'),
-            if (def.table == 'producao')
-              _ProducaoDetails(item: item),
-            if (def.table == 'equipes')
-              _EquipeDetails(equipeId: '${item['id']}'),
-            if (def.table == 'clientes')
-              _ClienteDetails(clienteId: '${item['id']}'),
-            const SizedBox(height: 80),
+            const SizedBox(height: 8),
+            if (def.subtitleOf(item).isNotEmpty)
+              Text(def.subtitleOf(item),
+                  style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 20),
+            ..._buildDefaultFields(),
+            if (custom != null) ...[
+              const SizedBox(height: 24),
+              if (def.table == 'producao') _buildProducaoStatusHeader(item),
+              if (def.table == 'producao') const SizedBox(height: 12),
+              custom,
+            ],
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: onEdit,
-        icon: const Icon(Icons.edit),
-        label: const Text('Editar'),
       ),
     );
   }
 
-  String _fieldValue(FieldDef f) {
-    if (f.type == FieldType.reference) {
-      final alias = f.key.endsWith('_id') ? f.key.substring(0, f.key.length - 3) : f.key;
-      final map = item[alias];
-      if (map is Map) return f.refLabelOf?.call(map.cast<String, dynamic>()) ?? _s(map['nome']);
-      return '-';
+  List<Widget> _buildDefaultFields() {
+    return def.fields
+        .where((f) => f.type != FieldType.hidden)
+        .map((f) {
+          dynamic raw;
+          if (f.refTable != null) {
+            raw = _ref(item, f.refTable!, f.refLabelOf ?? 'nome');
+          } else {
+            raw = item[f.key];
+          }
+          final label = f.label;
+          final value = _formatValue(raw, f);
+          return _DetailRow(label: label, value: value);
+        })
+        .cast<Widget>()
+        .toList();
+  }
+
+  String _formatValue(dynamic raw, FieldDef f) {
+    if (raw == null) return '-';
+    if (f.type == FieldType.date) {
+      final dt = DateTime.tryParse(raw.toString());
+      if (dt != null) return _s(dt.toLocal().toIso8601String().split('T').first);
+      return raw.toString();
     }
-    if (f.type == FieldType.multiReference) {
-      final alias = f.joinAlias ?? f.key;
-      final list = item[alias];
-      if (list is List && list.isNotEmpty) {
-        return list
-            .map((e) => (e is Map && e[f.joinChildKey ?? 'id'] != null)
-                ? (e['funcionarios']?['nome'] ?? e['nome'] ?? '').toString()
-                : '')
-            .where((e) => e.isNotEmpty)
-            .join(', ');
-      }
-      return '-';
+    if (f.type == FieldType.decimal || f.type == FieldType.number) {
+      return raw.toString();
     }
-    final v = item[f.key];
-    if (v == null) return '-';
-    if (f.suffix != null) return '$v ${f.suffix}';
-    return v.toString();
+    return raw.toString();
+  }
+
+  Widget? _buildCustomDetail() {
+    switch (def.table) {
+      case 'funcionarios':
+        return _FuncionarioDetails(funcionarioId: '${item['id']}');
+      case 'equipes':
+        return _EquipeDetails(equipeId: '${item['id']}');
+      case 'producao':
+        return _ProducaoDetails(item: item);
+      case 'clientes':
+        return _ClientePrecoHistorico(clienteId: '${item['id']}');
+      default:
+        return null;
+    }
+  }
+
+  Widget _buildProducaoStatusHeader(Map<String, dynamic> producao) {
+    final pfs = producao['producao_funcionarios'];
+    if (pfs is! List) return const SizedBox.shrink();
+    final pagos = pfs.where((pf) => pf is Map && pf['pago'] == true).length;
+    if (pagos == 0) return const SizedBox.shrink();
+
+    final todosPagos = pagos == pfs.length;
+    final texto = todosPagos
+        ? 'Pagamento fechado para todos os participantes'
+        : 'Pagamento fechado para $pagos de ${pfs.length} participante(s)';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: BrandColors.success.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: BrandColors.success.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock, color: BrandColors.success, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              texto,
+              style: const TextStyle(
+                color: BrandColors.success,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
 class _DetailRow extends StatelessWidget {
   final String label;
   final String value;
+
   const _DetailRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             flex: 2,
             child: Text(label,
-                style: TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.6))),
+                style: const TextStyle(
+                    color: Colors.grey, fontWeight: FontWeight.w500)),
           ),
           Expanded(
             flex: 3,
@@ -281,7 +283,7 @@ class _FuncionarioDetails extends StatelessWidget {
               const SizedBox(height: 8),
               ...equipamentos.map((e) => _DetailRow(
                   label: _s(e['nome']),
-                  value: '${_s(e['tipo'])} • ${_s(e['situacao'])}')),
+                  value: '${_s(e['tipo'])} • ${_s(e['situacao']}')),
               const SizedBox(height: 16),
             ],
             if (producao.isNotEmpty) ...[
@@ -320,31 +322,33 @@ class _MiniStat extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
+
   const _MiniStat(this.label, this.value, this.icon, this.color);
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 8),
+        Row(
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500)),
+          ],
+        ),
+        const SizedBox(height: 6),
         Text(value,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-        Text(label,
-            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 16)),
       ],
     );
   }
-}
-
-double _calcularValorProducao(Map<String, dynamic> p) {
-  // Usa o valor já calculado em producao_funcionarios quando disponível
-  final pfs = p['producao_funcionarios'];
-  if (pfs is List) {
-    return pfs.fold<double>(
-        0, (s, m) => s + (double.tryParse('${m['valor_total']}') ?? 0));
-  }
-  return 0;
 }
 
 class _ProducaoDetails extends StatefulWidget {
@@ -489,6 +493,14 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
   }
 }
 
+double _calcularValorProducao(Map<String, dynamic> p) {
+  final pfs = p['producao_funcionarios'];
+  if (pfs is List) {
+    return pfs.fold<double>(0, (s, pf) => s + _d(pf as Map, 'valor_total'));
+  }
+  return 0;
+}
+
 class _EquipeDetails extends StatelessWidget {
   final String equipeId;
   const _EquipeDetails({required this.equipeId});
@@ -510,8 +522,8 @@ class _EquipeDetails extends StatelessWidget {
           ));
         }
         final producao = ((snap.data?[0] as List?) ?? []).cast<Map<String, dynamic>>();
-        final volumeTotal = producao.fold<double>(0, (s, m) => s + _d(m, 'volume_total'));
-        final valorTotal = producao.fold<double>(0, (s, m) => s + _calcularValorProducao(m));
+        final totalVolume = producao.fold<double>(0, (s, p) => s + _d(p, 'volume_total'));
+        final totalArvores = producao.fold<int>(0, (s, p) => s + _i(p, 'total_arvores'));
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -527,29 +539,27 @@ class _EquipeDetails extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(
+                        child: _MiniStat('Volume',
+                            '${totalVolume.toStringAsFixed(1)} m³', Icons.grass, BrandColors.forest)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: _MiniStat('Árvores',
+                            '$totalArvores', Icons.park, BrandColors.success)),
+                    const SizedBox(width: 12),
+                    Expanded(
                         child: _MiniStat('Registros',
                             '${producao.length}', Icons.list_alt, BrandColors.info)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _MiniStat('Volume',
-                            '${volumeTotal.toStringAsFixed(1)} m³', Icons.grass, BrandColors.forest)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: _MiniStat('Valor total',
-                            'R\$ ${valorTotal.toStringAsFixed(2)}', Icons.payments, BrandColors.success)),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 16),
-            if (producao.isNotEmpty) ...[
-              Text('Produções recentes (${producao.length})',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
+            if (producao.isEmpty)
+              const Text('Nenhuma produção registrada para esta equipe.')
+            else
               ...producao.take(5).map((p) => _DetailRow(
-                  label: '${_ref(p, 'funcionario', 'nome')}',
-                  value: '${_s(p['data'])} • ${_d(p, 'volume_total').toStringAsFixed(1)} m³ • R\$ ${_calcularValorProducao(p).toStringAsFixed(2)}')),
-            ],
+                  label: _s(p['data']),
+                  value: '${_d(p, 'volume_total').toStringAsFixed(1)} m³ • R\$ ${_calcularValorProducao(p).toStringAsFixed(2)}')),
           ],
         );
       },
@@ -557,15 +567,15 @@ class _EquipeDetails extends StatelessWidget {
   }
 }
 
-class _ClienteDetails extends StatefulWidget {
+class _ClientePrecoHistorico extends StatefulWidget {
   final String clienteId;
-  const _ClienteDetails({required this.clienteId});
+  const _ClientePrecoHistorico({required this.clienteId});
 
   @override
-  State<_ClienteDetails> createState() => _ClienteDetailsState();
+  State<_ClientePrecoHistorico> createState() => _ClientePrecoHistoricoState();
 }
 
-class _ClienteDetailsState extends State<_ClienteDetails> {
+class _ClientePrecoHistoricoState extends State<_ClientePrecoHistorico> {
   List<Map<String, dynamic>> _historico = [];
   bool _carregando = true;
 
@@ -640,50 +650,4 @@ class _ClienteDetailsState extends State<_ClienteDetails> {
       ],
     );
   }
-
-  Widget _buildProducaoStatusHeader(Map<String, dynamic> producao) {
-    final pfs = producao['producao_funcionarios'];
-    if (pfs is! List) return const SizedBox.shrink();
-    final pagos = pfs.where((pf) => pf is Map && pf['pago'] == true).length;
-    if (pagos == 0) return const SizedBox.shrink();
-
-    final todosPagos = pagos == pfs.length;
-    final texto = todosPagos
-        ? 'Pagamento fechado para todos os participantes'
-        : 'Pagamento fechado para $pagos de ${pfs.length} participante(s)';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: BrandColors.success.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: BrandColors.success.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.lock, color: BrandColors.success, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              texto,
-              style: const TextStyle(
-                color: BrandColors.success,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-double _d(Map m, String k) => double.tryParse('${m[k]}') ?? 0;
-int _i(Map m, String k) => int.tryParse('${m[k]}'.split('.').first) ?? 0;
-String _ref(Map m, String alias, String field) {
-  final v = m[alias];
-  if (v is Map && v[field] != null) return v[field].toString();
-  return '';
 }

@@ -8,7 +8,18 @@ import 'consulta_producao_funcionario_screen.dart';
 
 /// Tela de consulta de produção por funcionário/equipe em um período.
 class ConsultaProducaoScreen extends StatefulWidget {
-  const ConsultaProducaoScreen({super.key});
+  final DateTime? dataInicio;
+  final DateTime? dataFim;
+  final String? funcionarioId;
+  final int initialTabIndex;
+
+  const ConsultaProducaoScreen({
+    super.key,
+    this.dataInicio,
+    this.dataFim,
+    this.funcionarioId,
+    this.initialTabIndex = 0,
+  });
 
   @override
   State<ConsultaProducaoScreen> createState() => _ConsultaProducaoScreenState();
@@ -32,10 +43,19 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    final hoje = DateTime.now();
-    _dataInicio = DateTime(hoje.year, hoje.month, 1);
-    _dataFim = DateTime(hoje.year, hoje.month, hoje.day);
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.funcionarioId != null ? 0 : widget.initialTabIndex,
+    );
+    if (widget.dataInicio != null && widget.dataFim != null) {
+      _dataInicio = widget.dataInicio;
+      _dataFim = widget.dataFim;
+    } else {
+      final hoje = DateTime.now();
+      _dataInicio = DateTime(hoje.year, hoje.month, 1);
+      _dataFim = DateTime(hoje.year, hoje.month, hoje.day);
+    }
     _carregar();
   }
 

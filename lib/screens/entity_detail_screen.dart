@@ -3,6 +3,8 @@ import '../data/entities.dart';
 import '../services/db_service.dart';
 import '../services/cliente_preco_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/common.dart';
+import 'consulta_producao_screen.dart';
 
 String _s(dynamic v) => v?.toString() ?? '';
 double _d(Map m, String k) => double.tryParse('${m[k]}') ?? 0;
@@ -146,6 +148,13 @@ class EntityDetailScreen extends StatelessWidget {
         ? 'Pagamento fechado para todos os participantes'
         : 'Pagamento fechado para $pagos de ${pfs.length} participante(s)';
 
+    final primeiroPago = pfs.firstWhere(
+      (pf) => pf is Map && pf['pago'] == true,
+      orElse: () => null,
+    ) as Map<String, dynamic>?;
+    final funcionarioId = primeiroPago?['funcionario_id']?.toString();
+    final fechamentoId = primeiroPago?['fechamento_id']?.toString();
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -159,18 +168,91 @@ class EntityDetailScreen extends StatelessWidget {
           const Icon(Icons.lock, color: BrandColors.success, size: 20),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              texto,
-              style: const TextStyle(
-                color: BrandColors.success,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  texto,
+                  style: const TextStyle(
+                    color: BrandColors.success,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                if (fechamentoId != null && funcionarioId != null)
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      foregroundColor: BrandColors.forestDark,
+                    ),
+                    onPressed: () => _abrirFechamentoNaConsulta(
+                      context,
+                      fechamentoId: fechamentoId,
+                      funcionarioId: funcionarioId,
+                    ),
+                    child: const Text(
+                      'Ver fechamento',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+              ],
             ),
           ),
+          const StatusChip('Pago', BrandColors.success),
         ],
       ),
     );
+  }
+
+  Future<void> _abrirFechamentoNaConsulta(
+    BuildContext context, {
+    required String fechamentoId,
+    required String funcionarioId,
+  }) async {
+    try {
+      final res = await Db.instance.client
+          .from('pagamento_fechamentos')
+          .select()
+          .eq('id', fechamentoId)
+          .single();
+      final inicio = _parseDate(res['periodo_inicio']);
+      final fim = _parseDate(res['periodo_fim']);
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ConsultaProducaoScreen(
+              dataInicio: inicio,
+              dataFim: fim,
+              funcionarioId: funcionarioId,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao carregar fechamento: $e')),
+        );
+      }
+    }
+  }
+
+  DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) {
+      final local = value.toLocal();
+      return DateTime(local.year, local.month, local.day);
+    }
+    try {
+      final dt = DateTime.parse(value.toString());
+      final local = dt.toLocal();
+      return DateTime(local.year, local.month, local.day);
+    } catch (_) {
+      return null;
+    }
   }
 }
 

@@ -648,15 +648,30 @@ final Map<String, EntityDef> kEntities = {
       _s(m, 'data'),
       _s(m, 'tipo_producao'),
       if (_i(m, 'total_arvores') > 0) '${_i(m, 'total_arvores')} árvores',
-      if (_temProducaoPaga(m)) 'Pago',
-      if (_temProducaoParcial(m)) 'Parcial',
     ].where((e) => e.isNotEmpty).join(' • '),
     leadingOf: (m) => _iconAvatar(Icons.grass, BrandColors.forest),
-    trailingOf: (m) => Text('${_d(m, 'volume_total').toStringAsFixed(1)} m³',
-        style: const TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: 16,
-            color: BrandColors.forest)),
+    trailingOf: (m) {
+      final status = _temProducaoPaga(m)
+          ? const StatusChip('Pago', BrandColors.success)
+          : _temProducaoParcial(m)
+              ? const StatusChip('Parcial', BrandColors.alert)
+              : null;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text('${_d(m, 'volume_total').toStringAsFixed(1)} m³',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: BrandColors.forest)),
+          if (status != null) ...[
+            const SizedBox(height: 4),
+            status,
+          ],
+        ],
+      );
+    },
     headerOf: (items) {
       final total = items.fold<double>(0, (s, m) => s + _d(m, 'volume_total'));
       final arvores =

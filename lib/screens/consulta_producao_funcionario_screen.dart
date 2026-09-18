@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../data/entities.dart';
+import '../services/db_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import 'entity_detail_screen.dart';
 
 /// Tela de detalhamento das produções de um funcionário em um período.
 class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
@@ -102,11 +105,14 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _abrirDetalheProducao(context, p),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                               Row(
                                 children: [
                                   Expanded(
@@ -281,6 +287,38 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _abrirDetalheProducao(
+      BuildContext context, Map<String, dynamic> producao) async {
+    try {
+      final id = '${producao['id']}';
+      final def = kEntities['producao']!;
+      final completo = await Db.instance.client
+          .from(def.table)
+          .select(def.selectQuery)
+          .eq('id', id)
+          .single();
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => EntityDetailScreen(
+              def: def,
+              item: completo as Map<String, dynamic>,
+              onEdit: () {},
+              onDelete: () {},
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao abrir detalhe: $e')),
+        );
+      }
+    }
   }
 
   static String _fmtDataPagamento(dynamic value) {

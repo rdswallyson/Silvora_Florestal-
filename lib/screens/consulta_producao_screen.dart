@@ -629,7 +629,6 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                   dataInicio: _dataInicio!,
                   dataFim: _dataFim!,
                   producoesEquipe: _producoesDaEquipe(id),
-                  producaoFuncionarios: _producaoFuncionarios,
                 ),
               ),
             ),

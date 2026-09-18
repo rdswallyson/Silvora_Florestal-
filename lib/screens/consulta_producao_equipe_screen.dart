@@ -94,7 +94,6 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
               padding: const EdgeInsets.only(left: 16, right: 16, bottom: 100),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  childCount: producoesEquipe.length,
                   (context, index) {
                       final p = producoesEquipe[index];
                       final data = _parseDate(p['data']);
@@ -175,6 +174,7 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
                         ),
                       );
                     },
+                  childCount: producoesEquipe.length,
                 ),
               ),
             ),

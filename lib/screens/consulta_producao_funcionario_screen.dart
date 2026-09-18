@@ -88,11 +88,10 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
               padding: const EdgeInsets.only(left: 16, right: 16, bottom: 100),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
-                  childCount: producoesFuncionario.length,
                   (context, index) {
                       final pf = producoesFuncionario[index];
                       final p = pf['producao'] is Map
-                          ? pf['producao'] as Map
+                          ? pf['producao'] as Map<String, dynamic>
                           : const <String, dynamic>{};
                       final data = _parseDate(p['data']);
                       final talhao = _ref(p, 'talhao', 'codigo');
@@ -162,6 +161,7 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
                         ),
                       );
                     },
+                  childCount: producoesFuncionario.length,
                 ),
               ),
             ),

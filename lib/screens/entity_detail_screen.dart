@@ -76,7 +76,7 @@ class EntityDetailScreen extends StatelessWidget {
             ..._buildDefaultFields(),
             if (custom != null) ...[
               const SizedBox(height: 24),
-              if (def.table == 'producao') _buildProducaoStatusHeader(item),
+              if (def.table == 'producao') _buildProducaoStatusHeader(context, item),
               if (def.table == 'producao') const SizedBox(height: 12),
               custom,
             ],
@@ -137,7 +137,7 @@ class EntityDetailScreen extends StatelessWidget {
     }
   }
 
-  Widget _buildProducaoStatusHeader(Map<String, dynamic> producao) {
+  Widget _buildProducaoStatusHeader(BuildContext context, Map<String, dynamic> producao) {
     final pfs = producao['producao_funcionarios'];
     if (pfs is! List) return const SizedBox.shrink();
     final pagos = pfs.where((pf) => pf is Map && pf['pago'] == true).length;

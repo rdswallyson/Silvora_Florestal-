@@ -11,6 +11,7 @@ class ConsultaProducaoScreen extends StatefulWidget {
   final DateTime? dataInicio;
   final DateTime? dataFim;
   final String? funcionarioId;
+  final List<String>? funcionarioIds;
   final int initialTabIndex;
 
   const ConsultaProducaoScreen({
@@ -18,6 +19,7 @@ class ConsultaProducaoScreen extends StatefulWidget {
     this.dataInicio,
     this.dataFim,
     this.funcionarioId,
+    this.funcionarioIds,
     this.initialTabIndex = 0,
   });
 
@@ -43,10 +45,13 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   @override
   void initState() {
     super.initState();
+    final hasFiltroFuncionario =
+        widget.funcionarioId != null ||
+        (widget.funcionarioIds != null && widget.funcionarioIds!.isNotEmpty);
     _tabController = TabController(
       length: 2,
       vsync: this,
-      initialIndex: widget.funcionarioId != null ? 0 : widget.initialTabIndex,
+      initialIndex: hasFiltroFuncionario ? 0 : widget.initialTabIndex,
     );
     if (widget.dataInicio != null && widget.dataFim != null) {
       _dataInicio = widget.dataInicio;
@@ -162,8 +167,23 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   }
 
   List<Map<String, dynamic>> get _funcionariosVisiveis {
-    if (_incluirInativos) return _funcionarios;
-    return _funcionarios.where((f) => _s(f, 'situacao') != 'Inativo').toList();
+    var list = _funcionarios;
+    if (! _incluirInativos) {
+      list = list.where((f) => _s(f, 'situacao') != 'Inativo').toList();
+    }
+    final ids = _filtroFuncionarioIds;
+    if (ids != null && ids.isNotEmpty) {
+      list = list.where((f) => ids.contains('${f['id']}')).toList();
+    }
+    return list;
+  }
+
+  List<String>? get _filtroFuncionarioIds {
+    if (widget.funcionarioId != null) return [widget.funcionarioId!];
+    if (widget.funcionarioIds != null && widget.funcionarioIds!.isNotEmpty) {
+      return widget.funcionarioIds;
+    }
+    return null;
   }
 
   List<Map<String, dynamic>> _producoesDoFuncionario(String funcionarioId) {

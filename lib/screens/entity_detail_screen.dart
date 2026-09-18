@@ -140,7 +140,11 @@ class EntityDetailScreen extends StatelessWidget {
   Widget _buildProducaoStatusHeader(BuildContext context, Map<String, dynamic> producao) {
     final pfs = producao['producao_funcionarios'];
     if (pfs is! List) return const SizedBox.shrink();
-    final pagos = pfs.where((pf) => pf is Map && pf['pago'] == true).length;
+    final pagosList = pfs
+        .where((pf) => pf is Map && pf['pago'] == true)
+        .cast<Map<String, dynamic>>()
+        .toList();
+    final pagos = pagosList.length;
     if (pagos == 0) return const SizedBox.shrink();
 
     final todosPagos = pagos == pfs.length;
@@ -148,12 +152,12 @@ class EntityDetailScreen extends StatelessWidget {
         ? 'Pagamento fechado para todos os participantes'
         : 'Pagamento fechado para $pagos de ${pfs.length} participante(s)';
 
-    final primeiroPago = pfs.firstWhere(
-      (pf) => pf is Map && pf['pago'] == true,
-      orElse: () => null,
-    ) as Map<String, dynamic>?;
-    final funcionarioId = primeiroPago?['funcionario_id']?.toString();
-    final fechamentoId = primeiroPago?['fechamento_id']?.toString();
+    final funcionarioIds = pagosList
+        .map((pf) => pf['funcionario_id']?.toString())
+        .whereType<String>()
+        .toList();
+    final primeiroPago = pagosList.first;
+    final fechamentoId = primeiroPago['fechamento_id']?.toString();
 
     return Container(
       width: double.infinity,
@@ -179,7 +183,7 @@ class EntityDetailScreen extends StatelessWidget {
                     fontSize: 13,
                   ),
                 ),
-                if (fechamentoId != null && funcionarioId != null)
+                if (fechamentoId != null && funcionarioIds.isNotEmpty)
                   TextButton(
                     style: TextButton.styleFrom(
                       padding: EdgeInsets.zero,
@@ -190,7 +194,7 @@ class EntityDetailScreen extends StatelessWidget {
                     onPressed: () => _abrirFechamentoNaConsulta(
                       context,
                       fechamentoId: fechamentoId,
-                      funcionarioId: funcionarioId,
+                      funcionarioIds: funcionarioIds,
                     ),
                     child: const Text(
                       'Ver fechamento',
@@ -209,7 +213,7 @@ class EntityDetailScreen extends StatelessWidget {
   Future<void> _abrirFechamentoNaConsulta(
     BuildContext context, {
     required String fechamentoId,
-    required String funcionarioId,
+    required List<String> funcionarioIds,
   }) async {
     try {
       final res = await Db.instance.client
@@ -226,7 +230,7 @@ class EntityDetailScreen extends StatelessWidget {
             builder: (_) => ConsultaProducaoScreen(
               dataInicio: inicio,
               dataFim: fim,
-              funcionarioId: funcionarioId,
+              funcionarioIds: funcionarioIds,
             ),
           ),
         );

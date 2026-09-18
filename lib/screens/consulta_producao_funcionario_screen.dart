@@ -49,10 +49,14 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
         backgroundColor: BrandColors.forest,
         foregroundColor: Colors.white,
       ),
-      body: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: Card(
+      body: ListView.builder(
+        padding: const EdgeInsets.only(bottom: 100),
+        itemCount: producoesFuncionario.isEmpty
+            ? 2 // Card de resumo + mensagem vazia
+            : producoesFuncionario.length + 1, // Card de resumo + itens
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Card(
               margin: const EdgeInsets.all(16),
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -75,96 +79,90 @@ class ConsultaProducaoFuncionarioScreen extends StatelessWidget {
                   ],
                 ),
               ),
-            ),
-          ),
-          if (producoesFuncionario.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                  child: Text('Nenhuma produção no período selecionado.')),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 100),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                      final pf = producoesFuncionario[index];
-                      final p = pf['producao'] is Map
-                          ? pf['producao'] as Map<String, dynamic>
-                          : const <String, dynamic>{};
-                      final data = _parseDate(p['data']);
-                      final talhao = _ref(p, 'talhao', 'codigo');
-                      final equipe = _ref(p, 'equipe', 'nome');
-                      final forma = _s(pf, 'forma_remuneracao');
-                      final qtd = _d(pf, 'quantidade_calculo');
-                      final valorPf = _d(pf, 'valor_total');
-                      final volumeP = _d(p, 'volume_total');
-                      final arvoresP = _d(p, 'total_arvores');
+            );
+          }
 
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: GestureDetector(
-                          onTap: () => _abrirDetalheProducao(context, p),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      data == null
-                                          ? 'Data não informada'
-                                          : _dateFmt.format(data),
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 15),
-                                    ),
-                                  ),
-                                  if (pf['pago'] == true)
-                                    const StatusChip('Pago', BrandColors.success),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              if (talhao.isNotEmpty)
-                                _linhaInfo(Icons.forest_outlined,
-                                    'Talhão: $talhao'),
-                              if (equipe.isNotEmpty)
-                                _linhaInfo(Icons.groups_outlined,
-                                    'Equipe: $equipe'),
-                              _linhaInfo(Icons.paid_outlined,
-                                  '$forma • ${qtd.toStringAsFixed(0)} un'),
-                              if (pf['pago'] == true)
-                                _linhaInfo(Icons.calendar_today_outlined,
-                                    'Pago em: ${_fmtDataPagamento(pf['data_pagamento'])}'),
-                              const Divider(height: 24),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Valor: ${_currency.format(valorPf)}',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          color: BrandColors.forest,
-                                          fontSize: 15),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              _buildItemResumo(forma, volumeP, arvoresP, qtd),
-                            ],
+          if (producoesFuncionario.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('Nenhuma produção no período selecionado.'),
+              ),
+            );
+          }
+
+          final pf = producoesFuncionario[index - 1];
+          final p = pf['producao'] is Map
+              ? pf['producao'] as Map<String, dynamic>
+              : const <String, dynamic>{};
+          final data = _parseDate(p['data']);
+          final talhao = _ref(p, 'talhao', 'codigo');
+          final equipe = _ref(p, 'equipe', 'nome');
+          final formaPf = _s(pf, 'forma_remuneracao');
+          final qtd = _d(pf, 'quantidade_calculo');
+          final valorPf = _d(pf, 'valor_total');
+          final volumeP = _d(p, 'volume_total');
+          final arvoresP = _d(p, 'total_arvores');
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+            child: Card(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _abrirDetalheProducao(context, p),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              data == null
+                                  ? 'Data não informada'
+                                  : _dateFmt.format(data),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 15),
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  childCount: producoesFuncionario.length,
+                          if (pf['pago'] == true)
+                            const StatusChip('Pago', BrandColors.success),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (talhao.isNotEmpty)
+                        _linhaInfo(Icons.forest_outlined, 'Talhão: $talhao'),
+                      if (equipe.isNotEmpty)
+                        _linhaInfo(Icons.groups_outlined, 'Equipe: $equipe'),
+                      _linhaInfo(Icons.paid_outlined,
+                          '$formaPf • ${qtd.toStringAsFixed(0)} un'),
+                      if (pf['pago'] == true)
+                        _linhaInfo(Icons.calendar_today_outlined,
+                            'Pago em: ${_fmtDataPagamento(pf['data_pagamento'])}'),
+                      const Divider(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Valor: ${_currency.format(valorPf)}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: BrandColors.forest,
+                                  fontSize: 15),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      _buildItemResumo(formaPf, volumeP, arvoresP, qtd),
+                    ],
+                  ),
                 ),
               ),
             ),
-        ],
+          );
+        },
       ),
     );
   }

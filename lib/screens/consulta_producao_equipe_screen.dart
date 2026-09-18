@@ -12,7 +12,6 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
   final DateTime dataInicio;
   final DateTime dataFim;
   final List<Map<String, dynamic>> producoesEquipe;
-  final List<Map<String, dynamic>> producaoFuncionarios;
 
   const ConsultaProducaoEquipeScreen({
     super.key,
@@ -20,7 +19,6 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
     required this.dataInicio,
     required this.dataFim,
     required this.producoesEquipe,
-    required this.producaoFuncionarios,
   });
 
   static final _dateFmt = DateFormat('dd/MM/yyyy');
@@ -34,9 +32,14 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
     for (final p in producoesEquipe) {
       volume += _d(p, 'volume_total');
       arvores += _d(p, 'total_arvores');
-      final pfs = producaoFuncionarios.where(
-          (pf) => '${pf['producao_id']}' == '${p['id']}');
-      valor += pfs.fold<double>(0, (s, pf) => s + _d(pf, 'valor_total'));
+      final pfs = p['producao_funcionarios'];
+      if (pfs is List) {
+        for (final pf in pfs) {
+          if (pf is Map) {
+            valor += _d(pf, 'valor_total');
+          }
+        }
+      }
     }
 
     return Scaffold(
@@ -45,10 +48,14 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
         backgroundColor: BrandColors.forest,
         foregroundColor: Colors.white,
       ),
-      body: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: Card(
+      body: ListView.builder(
+        padding: const EdgeInsets.only(bottom: 100),
+        itemCount: producoesEquipe.isEmpty
+            ? 2
+            : producoesEquipe.length + 1,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return Card(
               margin: const EdgeInsets.all(16),
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -71,8 +78,7 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
                       minItemWidth: 120,
                       children: [
                         _miniStat('Produções', '${producoesEquipe.length}'),
-                        _miniStat(
-                            'Volume', '${volume.toStringAsFixed(1)} m³'),
+                        _miniStat('Volume', '${volume.toStringAsFixed(1)} m³'),
                         _miniStat('Árvores', '${arvores.toStringAsFixed(0)}'),
                         _miniStat('Total pago', _currency.format(valor),
                             highlight: true),
@@ -81,105 +87,117 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
                   ],
                 ),
               ),
-            ),
-          ),
-          if (producoesEquipe.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                  child: Text('Nenhuma produção no período selecionado.')),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.only(left: 16, right: 16, bottom: 100),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                      final p = producoesEquipe[index];
-                      final data = _parseDate(p['data']);
-                      final talhao = _ref(p, 'talhao', 'codigo');
-                      final volumeP = _d(p, 'volume_total');
-                      final arvoresP = _d(p, 'total_arvores');
-                      final pfs = producaoFuncionarios.where(
-                          (pf) => '${pf['producao_id']}' == '${p['id']}');
-                      final valorP = pfs.fold<double>(
-                          0, (s, pf) => s + _d(pf, 'valor_total'));
-                      final participantes = pfs
-                          .map((pf) {
-                            final f = pf['funcionario'];
-                            if (f is Map && f['nome'] != null) {
-                              return f['nome'].toString();
-                            }
-                            return null;
-                          })
-                          .whereType<String>()
-                          .toList();
+            );
+          }
 
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: GestureDetector(
-                          onTap: () => _abrirDetalheProducao(context, p),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      data == null
-                                          ? 'Data não informada'
-                                          : _dateFmt.format(data),
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 15),
-                                    ),
-                                  ),
-                                  Text(
-                                    _currency.format(valorP),
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        color: BrandColors.forest,
-                                        fontSize: 16),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              if (talhao.isNotEmpty)
-                                _linhaInfo(Icons.forest_outlined,
-                                    'Talhão: $talhao'),
-                              if (participantes.isNotEmpty)
-                                _linhaInfo(Icons.groups_outlined,
-                                    'Participantes: ${participantes.join(', ')}'),
-                              _buildStatusParticipantes(pfs),
-                              const Divider(height: 24),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Volume: ${volumeP.toStringAsFixed(1)} m³',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                  Text(
-                                    'Árvores: ${arvoresP.toStringAsFixed(0)}',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ],
+          if (producoesEquipe.isEmpty) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('Nenhuma produção no período selecionado.'),
+              ),
+            );
+          }
+
+          final p = producoesEquipe[index - 1];
+          final data = _parseDate(p['data']);
+          final talhao = _ref(p, 'talhao', 'codigo');
+          final volumeP = _d(p, 'volume_total');
+          final arvoresP = _d(p, 'total_arvores');
+          final pfs = p['producao_funcionarios'];
+          final participantes = pfs is List
+              ? pfs.where((pf) => pf is Map).cast<Map<String, dynamic>>().toList()
+              : <Map<String, dynamic>>[];
+          final valorP = participantes
+              .fold<double>(0, (sum, pf) => sum + _d(pf, 'valor_total'));
+          final pagos = participantes.where((pf) => pf['pago'] == true).length;
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+            child: Card(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _abrirDetalheProducao(context, p),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              data == null
+                                  ? 'Data não informada'
+                                  : _dateFmt.format(data),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 15),
+                            ),
+                          ),
+                          _buildStatusParticipantes(participantes),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (talhao.isNotEmpty)
+                        _linhaInfo(Icons.forest_outlined, 'Talhão: $talhao'),
+                      _linhaInfo(Icons.groups_outlined,
+                          '${participantes.length} participante(s)'),
+                      const Divider(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Valor total: ${_currency.format(valorP)}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: BrandColors.forest,
+                                  fontSize: 15),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Volume: ${volumeP.toStringAsFixed(1)} m³',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                          Text(
+                            'Árvores: ${arvoresP.toStringAsFixed(0)}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                      if (pagos > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            '$pagos de ${participantes.length} pago(s)',
+                            style: const TextStyle(
+                                fontSize: 12, color: BrandColors.success),
                           ),
                         ),
-                      );
-                    },
-                  childCount: producoesEquipe.length,
+                    ],
+                  ),
                 ),
               ),
             ),
-        ],
+          );
+        },
       ),
     );
+  }
+
+  Widget _buildStatusParticipantes(Iterable<Map<String, dynamic>> pfs) {
+    final pagos = pfs.where((pf) => pf['pago'] == true).length;
+    if (pagos == 0) return const SizedBox.shrink();
+    if (pagos == pfs.length) {
+      return const StatusChip('Pago', BrandColors.success);
+    }
+    return const StatusChip('Parcial', BrandColors.alert);
   }
 
   Widget _miniStat(String label, String value, {bool highlight = false}) {
@@ -220,40 +238,7 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
         children: [
           Icon(icon, size: 14, color: Colors.grey),
           const SizedBox(width: 6),
-          Expanded(
-            child: Text(text,
-                style: const TextStyle(fontSize: 13),
-                overflow: TextOverflow.ellipsis),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusParticipantes(Iterable<Map<String, dynamic>> pfs) {
-    final pagos = pfs.where((pf) => pf['pago'] == true).length;
-    if (pagos == 0) return const SizedBox.shrink();
-    if (pagos == pfs.length) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Row(
-          children: const [
-            Icon(Icons.check_circle, color: BrandColors.success, size: 16),
-            SizedBox(width: 6),
-            Text('Todos os participantes pagos',
-                style: TextStyle(color: BrandColors.success, fontSize: 12)),
-          ],
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Row(
-        children: [
-          const Icon(Icons.warning_amber_rounded, color: BrandColors.alert, size: 16),
-          const SizedBox(width: 6),
-          Text('$pagos de ${pfs.length} participante(s) pago(s)',
-              style: const TextStyle(color: BrandColors.alert, fontSize: 12)),
+          Text(text, style: const TextStyle(fontSize: 13)),
         ],
       ),
     );

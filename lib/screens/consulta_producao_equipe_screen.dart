@@ -117,8 +117,7 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
 
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
+                        child: GestureDetector(
                           onTap: () => _abrirDetalheProducao(context, p),
                           child: Padding(
                             padding: const EdgeInsets.all(16),

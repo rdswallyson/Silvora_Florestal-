@@ -106,6 +106,23 @@ class EntityDetailScreen extends StatelessWidget {
     );
   }
 
+  List<Widget> _buildDefaultFields() {
+    return def.fields
+        .map((f) {
+          dynamic raw;
+          if (f.refTable != null && f.refLabelOf != null) {
+            raw = f.refLabelOf!(_mapRef(item, f.refTable!));
+          } else {
+            raw = item[f.key];
+          }
+          final label = f.label;
+          final value = _formatValue(raw, f);
+          return _DetailRow(label: label, value: value);
+        })
+        .cast<Widget>()
+        .toList();
+  }
+
   Map<String, dynamic> _mapRef(Map<String, dynamic> item, String alias) {
     final v = item[alias];
     if (v is Map) return v.cast<String, dynamic>();

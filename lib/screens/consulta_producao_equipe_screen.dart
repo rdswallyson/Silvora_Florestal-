@@ -261,6 +261,7 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
             builder: (_) => EntityDetailScreen(
               def: def,
               item: completo as Map<String, dynamic>,
+              useAsSheet: false,
               onEdit: () {},
               onDelete: () {},
             ),

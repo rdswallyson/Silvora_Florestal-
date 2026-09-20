@@ -850,17 +850,17 @@ class _TabBarHeaderDelegate extends SliverPersistentHeaderDelegate {
   _TabBarHeaderDelegate({required this.child, required this.backgroundColor});
 
   @override
-  double get minExtent => 62;
+  double get minExtent => 72;
 
   @override
-  double get maxExtent => 62;
+  double get maxExtent => 72;
 
   @override
   Widget build(
       BuildContext context, double shrinkOffset, bool overlapsContent) {
     return Container(
       color: backgroundColor,
-      height: 62,
+      height: 72,
       child: child,
     );
   }

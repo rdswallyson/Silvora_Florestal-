@@ -145,6 +145,7 @@ class _EntityListScreenState extends State<EntityListScreen> {
         builder: (ctx) => EntityDetailScreen(
           def: def,
           item: item,
+          useAsSheet: false,
           onEdit: () async {
             Navigator.pop(ctx);
             await _openForm(item);

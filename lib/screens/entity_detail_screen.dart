@@ -22,6 +22,7 @@ class EntityDetailScreen extends StatelessWidget {
   final Map<String, dynamic> item;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final bool useAsSheet;
 
   const EntityDetailScreen({
     super.key,
@@ -29,78 +30,80 @@ class EntityDetailScreen extends StatelessWidget {
     required this.item,
     required this.onEdit,
     required this.onDelete,
+    this.useAsSheet = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    final custom = _buildCustomDetail();
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.65,
-      minChildSize: 0.4,
-      maxChildSize: 0.95,
-      builder: (_, scrollCtrl) => SingleChildScrollView(
-        controller: scrollCtrl,
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    def.titleOf(item),
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: BrandColors.forest,
-                        ),
-                  ),
-                ),
-                if (def.table != 'producao_funcionarios') ...[
-                  IconButton(
-                    icon: const Icon(Icons.edit, color: BrandColors.forest),
-                    onPressed: onEdit,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: BrandColors.alert),
-                    onPressed: onDelete,
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (def.subtitleOf(item).isNotEmpty)
-              Text(def.subtitleOf(item),
-                  style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 20),
-            ..._buildDefaultFields(),
-            if (custom != null) ...[
-              const SizedBox(height: 24),
-              if (def.table == 'producao') _buildProducaoStatusHeader(context, item),
-              if (def.table == 'producao') const SizedBox(height: 12),
-              custom,
-            ],
-          ],
+    final content = _buildContent(context);
+    if (useAsSheet) {
+      return DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.65,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        builder: (_, scrollCtrl) => SingleChildScrollView(
+          controller: scrollCtrl,
+          padding: const EdgeInsets.all(20),
+          child: content,
         ),
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(def.titleOf(item)),
+        backgroundColor: BrandColors.forest,
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: content,
       ),
     );
   }
 
-  List<Widget> _buildDefaultFields() {
-    return def.fields
-        .map((f) {
-          dynamic raw;
-          if (f.refTable != null && f.refLabelOf != null) {
-            raw = f.refLabelOf!(_mapRef(item, f.refTable!));
-          } else {
-            raw = item[f.key];
-          }
-          final label = f.label;
-          final value = _formatValue(raw, f);
-          return _DetailRow(label: label, value: value);
-        })
-        .cast<Widget>()
-        .toList();
+  Widget _buildContent(BuildContext context) {
+    final custom = _buildCustomDetail();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                def.titleOf(item),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: BrandColors.forest,
+                    ),
+              ),
+            ),
+            if (def.table != 'producao_funcionarios') ...[
+              IconButton(
+                icon: const Icon(Icons.edit, color: BrandColors.forest),
+                onPressed: onEdit,
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, color: BrandColors.alert),
+                onPressed: onDelete,
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (def.subtitleOf(item).isNotEmpty)
+          Text(def.subtitleOf(item),
+              style: const TextStyle(color: Colors.grey)),
+        const SizedBox(height: 20),
+        ..._buildDefaultFields(),
+        if (custom != null) ...[
+          const SizedBox(height: 24),
+          if (def.table == 'producao') _buildProducaoStatusHeader(context, item),
+          if (def.table == 'producao') const SizedBox(height: 12),
+          custom,
+        ],
+      ],
+    );
   }
 
   Map<String, dynamic> _mapRef(Map<String, dynamic> item, String alias) {

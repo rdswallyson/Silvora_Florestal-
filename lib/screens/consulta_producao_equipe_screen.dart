@@ -117,7 +117,19 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
             child: Card(
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
-                onTap: () => _abrirDetalheProducao(context, p),
+                onTap: () {
+                  final producaoId = p['id']?.toString();
+                  if (producaoId == null ||
+                      producaoId.isEmpty ||
+                      producaoId == 'null') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('ID da produção não encontrado.')),
+                    );
+                    return;
+                  }
+                  _abrirDetalheProducao(context, producaoId);
+                },
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -245,14 +257,13 @@ class ConsultaProducaoEquipeScreen extends StatelessWidget {
   }
 
   Future<void> _abrirDetalheProducao(
-      BuildContext context, Map<String, dynamic> producao) async {
+      BuildContext context, String producaoId) async {
     try {
-      final id = '${producao['id']}';
       final def = kEntities['producao']!;
       final completo = await Db.instance.client
           .from(def.table)
           .select(def.selectQuery)
-          .eq('id', id)
+          .eq('id', producaoId)
           .single();
       if (context.mounted) {
         Navigator.push(

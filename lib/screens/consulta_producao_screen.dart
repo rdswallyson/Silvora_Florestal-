@@ -84,7 +84,7 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
       final producoesRes = await c
           .from('producao')
           .select(
-              'id, data, talhao_id, equipe_id, funcionario_id, volume_total, total_arvores, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome)')
+              'id, data, talhao_id, equipe_id, funcionario_id, volume_total, total_arvores, equipe:equipes!equipe_id(nome), talhao:talhoes!talhao_id(codigo), funcionario:funcionarios!funcionario_id(nome), producao_funcionarios(*)')
           .gte('data', inicio)
           .lte('data', fim)
           .order('data', ascending: false);
@@ -690,23 +690,15 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Row(
+                  ResponsiveStatGrid(
                     children: [
-                      Expanded(
-                        child: _miniStat('Volume',
-                            '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _miniStat('Árvores',
-                            '${(totais['arvores'] as double).toStringAsFixed(0)}'),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _miniStat('Total pago',
-                            _currency.format(totais['valor']),
-                            highlight: true),
-                      ),
+                      _miniStat('Volume',
+                          '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
+                      _miniStat('Árvores',
+                          '${(totais['arvores'] as double).toStringAsFixed(0)}'),
+                      _miniStat('Total pago',
+                          _currency.format(totais['valor']),
+                          highlight: true),
                     ],
                   ),
                 ],
@@ -719,54 +711,39 @@ class _ConsultaProducaoScreenState extends State<ConsultaProducaoScreen>
   }
 
   Widget _buildStatsRow(Map<String, dynamic> totais, String forma) {
-    final receber = Expanded(
-      child: _miniStat('A receber', _currency.format(totais['valor']),
-          highlight: true),
-    );
+    final receber = _miniStat('A receber', _currency.format(totais['valor']),
+        highlight: true);
     switch (forma) {
       case 'Diária':
       case 'Produção fixa':
-        return Row(
+        return ResponsiveRow(
           children: [
-            Expanded(
-              child: _miniStat('Dias/participações',
-                  '${totais['quantidade']}'),
-            ),
-            const SizedBox(width: 8),
+            _miniStat('Dias/participações', '${totais['quantidade']}'),
             receber,
           ],
         );
       case 'Hora':
-        return Row(
+        return ResponsiveRow(
           children: [
-            Expanded(
-              child: _miniStat(
-                  'Horas', '${(totais['horas'] as double).toStringAsFixed(1)} h'),
-            ),
-            const SizedBox(width: 8),
+            _miniStat(
+                'Horas', '${(totais['horas'] as double).toStringAsFixed(1)} h'),
             receber,
           ],
         );
       case 'Árvore':
-        return Row(
+        return ResponsiveRow(
           children: [
-            Expanded(
-              child: _miniStat('Árvores',
-                  '${(totais['arvores'] as double).toStringAsFixed(0)}'),
-            ),
-            const SizedBox(width: 8),
+            _miniStat('Árvores',
+                '${(totais['arvores'] as double).toStringAsFixed(0)}'),
             receber,
           ],
         );
       case 'Metro cúbico':
       default:
-        return Row(
+        return ResponsiveRow(
           children: [
-            Expanded(
-              child: _miniStat('Volume',
-                  '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
-            ),
-            const SizedBox(width: 8),
+            _miniStat('Volume',
+                '${(totais['volume'] as double).toStringAsFixed(1)} m³'),
             receber,
           ],
         );

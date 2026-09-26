@@ -476,7 +476,13 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
   @override
   void initState() {
     super.initState();
-    _carregarIntegrantes();
+    final pfs = widget.item['producao_funcionarios'];
+    if (pfs is List && pfs.isNotEmpty) {
+      _integrantes = pfs.whereType<Map<String, dynamic>>().toList();
+    }
+    if (_integrantes.isEmpty) {
+      _carregarIntegrantes();
+    }
   }
 
   Future<void> _carregarIntegrantes() async {
@@ -493,7 +499,7 @@ class _ProducaoDetailsState extends State<_ProducaoDetails> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
-    final valor = _calcularValorProducao(item);
+    final valor = _integrantes.fold<double>(0, (s, m) => s + _d(m, 'valor_total'));
     final equipeNome = _ref(item, 'equipe', 'nome');
     final funcNome = _ref(item, 'funcionario', 'nome');
     final talhaoCod = _ref(item, 'talhao', 'codigo');
